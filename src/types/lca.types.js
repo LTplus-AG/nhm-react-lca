@@ -54,20 +54,29 @@ export const ModelledMaterials = [
 export const UnmodelledMaterials = [
     {
         id: 101,
-        name: 'Spezial-Dämmstoff',
-        volume: 23.4
+        kbobId: '',
+        name: 'Aushub, nicht kontaminiert',
+        volume: 123.4,
+        ebkp: 'B06.01'
     },
-    {
-        id: 102,
-        name: 'Recycling-Verbundmaterial',
-        volume: 15.7
-    },
-    {
-        id: 103,
-        name: 'Bio-basierte Wandverkleidung',
-        volume: 45.2
-    }
+
 ];
+
+// EBKP codes for materials
+export const EBKPCodes = {
+    C01: 'C01',
+    'C02.01': 'C02.01',
+    'C02.02': 'C02.02',
+    C03: 'C03',
+    'C04.01': 'C04.01',
+    'C04.08': 'C04.08',
+    D01: 'D01',
+    D05: 'D05',
+    D08: 'D08',
+    E01: 'E01',
+    E02: 'E02',
+    E03: 'E03'
+};
 
 // KBOB materials database with all impact types
 export const KBOBMaterials = [

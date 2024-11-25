@@ -1,7 +1,7 @@
 import { OutputFormats } from '../types/lca.types';
 
 export class LCACalculator {
-    calculateImpact(materials, matches, kbobMaterials) {
+    calculateImpact(materials, matches, kbobMaterials, unmodelledMaterials = []) {
         let results = {
             gwp: 0,
             ubp: 0,
@@ -10,6 +10,7 @@ export class LCACalculator {
             unmodelledMaterials: 0
         };
 
+        // Calculate impacts for modelled materials
         materials.forEach(material => {
             const kbobMaterial = kbobMaterials.find(k => k.id === matches[material.id]);
             const impacts = this.calculateMaterialImpact(material, kbobMaterial);
@@ -20,6 +21,18 @@ export class LCACalculator {
                 results.penr += impacts.penr;
                 results.modelledMaterials += 1;
             } else {
+                results.unmodelledMaterials += 1;
+            }
+        });
+
+        // Calculate impacts for unmodelled materials
+        unmodelledMaterials.forEach(material => {
+            const kbobMaterial = kbobMaterials.find(k => k.id === material.kbobId);
+            if (kbobMaterial) {
+                const impacts = this.calculateMaterialImpact(material, kbobMaterial);
+                results.gwp += impacts.gwp;
+                results.ubp += impacts.ubp;
+                results.penr += impacts.penr;
                 results.unmodelledMaterials += 1;
             }
         });
@@ -58,8 +71,8 @@ export class LCACalculator {
         }
     }
 
-    calculateGrandTotal(materials, matches, kbobMaterials, outputFormat) {
-        const results = this.calculateImpact(materials, matches, kbobMaterials);
+    calculateGrandTotal(materials, matches, kbobMaterials, outputFormat, unmodelledMaterials = []) {
+        const results = this.calculateImpact(materials, matches, kbobMaterials, unmodelledMaterials);
         const value = results[outputFormat.toLowerCase()];
         return this.formatImpact(value, outputFormat);
     }

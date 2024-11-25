@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ModelledMaterials, UnmodelledMaterials, OutputFormats, OutputFormatLabels } from '../types/lca.types';
+import { ModelledMaterials, UnmodelledMaterials, OutputFormats, OutputFormatLabels, EBKPCodes } from '../types/lca.types';
 import { LCACalculator } from '../utils/lcaCalculator';
 import { fetchKBOBMaterials } from '../services/kbobService';
 
@@ -12,8 +12,10 @@ export default function LCACalculatorComponent() {
     const [matches, setMatches] = useState({});
     const [activeTab, setActiveTab] = useState('modelled');
     const [newMaterial, setNewMaterial] = useState({
+        kbobId: '',
         name: '',
-        volume: ''
+        volume: '',
+        ebkp: ''
     });
     const [results, setResults] = useState({
         totalCO2: 0,
@@ -32,9 +34,9 @@ export default function LCACalculatorComponent() {
     }, []);
 
     useEffect(() => {
-        const newResults = calculator.calculateImpact(modelledMaterials, matches, kbobMaterials);
+        const newResults = calculator.calculateImpact(modelledMaterials, matches, kbobMaterials, unmodelledMaterials);
         setResults(newResults);
-    }, [matches, modelledMaterials, kbobMaterials]);
+    }, [matches, modelledMaterials, kbobMaterials, unmodelledMaterials]);
 
     const handleMatch = (modelId, kbobId) => {
         setMatches(prev => ({
@@ -54,14 +56,17 @@ export default function LCACalculatorComponent() {
 
     const handleAddMaterial = (e) => {
         e.preventDefault();
-        if (newMaterial.name && newMaterial.volume > 0) {
+        if (newMaterial.kbobId && newMaterial.volume > 0) {
             const newId = Math.max(...unmodelledMaterials.map(m => m.id), 100) + 1;
+            const kbobMaterial = kbobMaterials.find(k => k.id === newMaterial.kbobId);
             setUnmodelledMaterials(prev => [...prev, {
                 id: newId,
-                name: newMaterial.name,
-                volume: parseFloat(newMaterial.volume)
+                kbobId: newMaterial.kbobId,
+                name: kbobMaterial?.nameDE || newMaterial.name,
+                volume: parseFloat(newMaterial.volume),
+                ebkp: newMaterial.ebkp
             }]);
-            setNewMaterial({ name: '', volume: '' });
+            setNewMaterial({ kbobId: '', name: '', volume: '', ebkp: '' });
         }
     };
 
@@ -69,7 +74,7 @@ export default function LCACalculatorComponent() {
         <div className="flex h-screen bg-gray-100">
             <div className="w-80 bg-white p-6 shadow-lg">
                 <h2 className="text-2xl font-bold mb-6">Projektübersicht</h2>
-                
+
                 <div className="mb-6">
                     <h3 className="font-bold mb-2">Projektname</h3>
                     <p className="text-gray-600">Phase: 99 Beispielphase</p>
@@ -94,7 +99,7 @@ export default function LCACalculatorComponent() {
                     <h3 className="font-bold mb-2">Gesamtergebnis</h3>
                     <div className="bg-gray-50 p-4 rounded-md">
                         <p className="text-3xl font-bold">
-                            {calculator.calculateGrandTotal(modelledMaterials, matches, kbobMaterials, outputFormat)}
+                            {calculator.calculateGrandTotal(modelledMaterials, matches, kbobMaterials, outputFormat, unmodelledMaterials)}
                         </p>
                     </div>
                 </div>
@@ -133,7 +138,7 @@ export default function LCACalculatorComponent() {
                                         }`}
                                     onClick={() => setActiveTab('modelled')}
                                 >
-                                    Modellierte Materialen ({modelledMaterials.length})
+                                    Modellierte Materialien ({modelledMaterials.length})
                                 </button>
                                 <button
                                     className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'unmodelled'
@@ -142,7 +147,7 @@ export default function LCACalculatorComponent() {
                                         }`}
                                     onClick={() => setActiveTab('unmodelled')}
                                 >
-                                    Nicht modellierte Materialen ({unmodelledMaterials.length})
+                                    Nicht modellierte Materialien ({unmodelledMaterials.length})
                                 </button>
                             </nav>
                         </div>
@@ -194,39 +199,88 @@ export default function LCACalculatorComponent() {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                <form onSubmit={handleAddMaterial} className="grid grid-cols-3 gap-4">
-                                    <input
-                                        type="text"
+                                <div className="grid grid-cols-4 gap-4 font-bold">
+                                    <div>KBOB MATERIAL</div>
+                                    <div>EBKP CODE</div>
+                                    <div>VOLUMEN (m³)</div>
+                                    <div></div>
+                                </div>
+                                <form onSubmit={handleAddMaterial} className="grid grid-cols-4 gap-4">
+                                    <select
                                         className="w-full p-2 border rounded-md"
-                                        value={newMaterial.name}
-                                        onChange={(e) => setNewMaterial(prev => ({ ...prev, name: e.target.value }))}
-                                        placeholder="Materialname"
-                                    />
+                                        value={newMaterial.kbobId || ''}
+                                        onChange={(e) => setNewMaterial(prev => ({ 
+                                            ...prev, 
+                                            kbobId: e.target.value,
+                                            name: kbobMaterials.find(m => m.id === e.target.value)?.nameDE || ''
+                                        }))}
+                                        required
+                                    >
+                                        <option value="">KBOB Material auswählen...</option>
+                                        {kbobMaterials.map(material => (
+                                            <option key={material.id} value={material.id}>
+                                                {material.nameDE}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <select
+                                        className="w-full p-2 border rounded-md"
+                                        value={newMaterial.ebkp || ''}
+                                        onChange={(e) => setNewMaterial(prev => ({ 
+                                            ...prev, 
+                                            ebkp: e.target.value
+                                        }))}
+                                        required
+                                    >
+                                        <option value="">EBKP Code auswählen...</option>
+                                        {Object.entries(EBKPCodes).map(([code, value]) => (
+                                            <option key={code} value={code}>
+                                                {code}
+                                            </option>
+                                        ))}
+                                    </select>
                                     <input
                                         type="number"
                                         step="0.01"
                                         className="w-full p-2 border rounded-md"
                                         value={newMaterial.volume}
                                         onChange={(e) => setNewMaterial(prev => ({ ...prev, volume: e.target.value }))}
-                                        placeholder="Volumen (m³)"
+                                        placeholder="Volumen"
+                                        required
                                     />
                                     <button
                                         type="submit"
-                                        className="w-full bg-black text-white px-4 py-2 rounded-md hover:bg-gray-800"
+                                        className="px-4 py-2 bg-black text-white rounded-md hover:bg-gray-800"
                                     >
-                                        Material hinzufügen
+                                        Hinzufügen
                                     </button>
                                 </form>
 
                                 <div className="mt-8">
                                     <h3 className="text-lg font-medium mb-4">Nicht zugewiesene Materialien</h3>
-                                    <div className="space-y-2">
-                                        {unmodelledMaterials.map(material => (
-                                            <div key={material.id} className="bg-gray-50 p-4 rounded-lg flex justify-between items-center">
-                                                <span>{material.name} ({material.volume} m³)</span>
-                                            </div>
-                                        ))}
+                                    <div className="grid grid-cols-4 gap-4 font-bold mb-2">
+                                        <div>MATERIAL</div>
+                                        <div>EBKP CODE</div>
+                                        <div>VOLUMEN (m³)</div>
+                                        <div></div>
                                     </div>
+                                    {unmodelledMaterials.map(material => (
+                                        <div key={material.id} className="grid grid-cols-4 gap-4 items-center py-2 border-b">
+                                            <div>{material.name}</div>
+                                            <div>{material.ebkp || '-'}</div>
+                                            <div>{material.volume}</div>
+                                            <button
+                                                onClick={() => {
+                                                    setUnmodelledMaterials(prev =>
+                                                        prev.filter(m => m.id !== material.id)
+                                                    );
+                                                }}
+                                                className="justify-self-end px-2 py-1 text-red-600 hover:text-red-800"
+                                            >
+                                                Löschen
+                                            </button>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}
