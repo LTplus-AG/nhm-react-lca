@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/kbob",
+      "destination": "/api/kbob.js"
+    }
+  ]
+}
