@@ -14,7 +14,7 @@ export class LCACalculator {
         materials.forEach(material => {
             const kbobMaterial = kbobMaterials.find(k => k.id === matches[material.id]);
             const impacts = this.calculateMaterialImpact(material, kbobMaterial);
-            
+
             if (impacts.gwp > 0 || impacts.ubp > 0 || impacts.penr > 0) {
                 results.gwp += impacts.gwp;
                 results.ubp += impacts.ubp;
@@ -44,7 +44,7 @@ export class LCACalculator {
         if (!material || !kbobMaterial) {
             return { gwp: 0, ubp: 0, penr: 0 };
         }
-        
+
         const volume = material.volume;
         const density = kbobMaterial.density;
         const mass = density ? volume * density : volume;
@@ -58,7 +58,7 @@ export class LCACalculator {
 
     formatImpact(value, type) {
         if (typeof value !== 'number') return '0';
-        
+
         switch (type) {
             case OutputFormats.GWP:
                 return `${value.toFixed(2)} kg CO₂-eq`;
@@ -77,19 +77,5 @@ export class LCACalculator {
         return this.formatImpact(value, outputFormat);
     }
 
-    // Add more calculation methods as needed
-    calculateTransportImpact(distance, mode = 'truck') {
-        // Simplified transport impact calculation
-        const transportFactors = {
-            truck: { co2: 0.062, energy: 0.8 }, // per km
-            train: { co2: 0.022, energy: 0.2 },
-            ship: { co2: 0.015, energy: 0.1 }
-        };
 
-        const factor = transportFactors[mode] || transportFactors.truck;
-        return {
-            co2: factor.co2 * distance,
-            energy: factor.energy * distance
-        };
-    }
 }

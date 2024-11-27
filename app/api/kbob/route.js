@@ -2,7 +2,7 @@ export const config = {
   runtime: 'edge'
 };
 
-export default async function handler(req) {
+export async function GET() {
   // Handle CORS
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -10,11 +10,6 @@ export default async function handler(req) {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json'
   };
-
-  // Handle OPTIONS request
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers });
-  }
 
   try {
     const response = await fetch('https://www.lcadata.ch/api/kbob/materials', {
@@ -41,4 +36,15 @@ export default async function handler(req) {
       headers
     });
   }
+}
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    }
+  });
 }

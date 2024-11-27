@@ -19,7 +19,7 @@ export async function fetchKBOBMaterials() {
         const data = await response.json();
         console.log('Response data:', data);
 
-        if (!data.success) {
+        if (!data.materials) {
             throw new Error('Failed to fetch KBOB materials');
         }
 

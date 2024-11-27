@@ -209,8 +209,8 @@ export default function LCACalculatorComponent() {
                                     <select
                                         className="w-full p-2 border rounded-md"
                                         value={newMaterial.kbobId || ''}
-                                        onChange={(e) => setNewMaterial(prev => ({ 
-                                            ...prev, 
+                                        onChange={(e) => setNewMaterial(prev => ({
+                                            ...prev,
                                             kbobId: e.target.value,
                                             name: kbobMaterials.find(m => m.id === e.target.value)?.nameDE || ''
                                         }))}
@@ -226,14 +226,14 @@ export default function LCACalculatorComponent() {
                                     <select
                                         className="w-full p-2 border rounded-md"
                                         value={newMaterial.ebkp || ''}
-                                        onChange={(e) => setNewMaterial(prev => ({ 
-                                            ...prev, 
+                                        onChange={(e) => setNewMaterial(prev => ({
+                                            ...prev,
                                             ebkp: e.target.value
                                         }))}
                                         required
                                     >
                                         <option value="">EBKP Code auswählen...</option>
-                                        {Object.entries(EBKPCodes).map(([code, value]) => (
+                                        {Object.entries(EBKPCodes).map(([code]) => (
                                             <option key={code} value={code}>
                                                 {code}
                                             </option>
