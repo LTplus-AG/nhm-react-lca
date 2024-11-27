@@ -1,6 +1,6 @@
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
-import { HomeIcon } from '@heroicons/react/24/outline'
-import LCACalculator from './components/LCACalculator'
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { HomeIcon } from "@heroicons/react/24/outline";
+import LCACalculator from "./components/LCACalculator";
 
 function App() {
   return (
@@ -12,7 +12,9 @@ function App() {
               <div className="flex">
                 <Link to="/" className="flex items-center">
                   <HomeIcon className="h-6 w-6 text-gray-600" />
-                  <span className="ml-2 text-xl font-semibold">NHM Ökobilanz Material Matching</span>
+                  <span className="ml-2 text-xl font-semibold">
+                    NHMzh UI Mockup "Fachplaner Ökobilanzierung
+                  </span>
                 </Link>
               </div>
             </div>
@@ -26,7 +28,7 @@ function App() {
         </main>
       </div>
     </Router>
-  )
+  );
 }
 
-export default App
+export default App;
