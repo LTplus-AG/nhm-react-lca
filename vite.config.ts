@@ -7,11 +7,17 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/kbob': {
-        target: 'https://www.lcadata.ch',
+        target: 'https://www.lcadata.ch/api/kbob/materials',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path
+        rewrite: (path) => '',
+        headers: {
+          'x-api-key': 'SLST#2y9@&T#R^^pm8tJ%ZZerL5@MSXVZ@UnrtgB'
+        }
       }
     }
+  },
+  resolve: {
+    extensions: ['.js', '.jsx', '.ts', '.tsx']
   }
 })

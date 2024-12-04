@@ -1,8 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import { HomeIcon } from "@heroicons/react/24/outline";
-import LCACalculator from "./components/LCACalculator";
+import LCACalculator from "./components/LCACalculator.tsx";
 
-function App() {
+function App(): JSX.Element {
   return (
     <Router>
       <div className="min-h-screen bg-gray-100">
@@ -13,7 +13,7 @@ function App() {
                 <Link to="/" className="flex items-center">
                   <HomeIcon className="h-6 w-6 text-gray-600" />
                   <span className="ml-2 text-xl font-semibold">
-                    NHMzh UI Mockup "Fachplaner Ökobilanzierung
+                    NHMzh UI Mockup "Fachplaner Ökobilanzierung"
                   </span>
                 </Link>
               </div>
@@ -21,11 +21,11 @@ function App() {
           </div>
         </nav>
 
-        <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
           <Routes>
             <Route path="/" element={<LCACalculator />} />
           </Routes>
-        </main>
+        </div>
       </div>
     </Router>
   );

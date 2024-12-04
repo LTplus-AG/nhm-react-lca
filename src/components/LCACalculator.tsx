@@ -1,37 +1,48 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ModelledMaterials,
   UnmodelledMaterials,
   OutputFormats,
   OutputFormatLabels,
   EBKPCodes,
-} from "../types/lca.types";
+  Material,
+  UnmodelledMaterial,
+  KbobMaterial,
+  NewMaterial,
+  ImpactResults
+} from "../types/lca.types.ts";
 import { LCACalculator } from "../utils/lcaCalculator";
 import { fetchKBOBMaterials } from "../services/kbobService";
-import Select from "react-select";
+import Select, { SingleValue } from "react-select";
 
 const calculator = new LCACalculator();
 
-export default function LCACalculatorComponent() {
-  const [modelledMaterials, setModelledMaterials] = useState(ModelledMaterials);
-  const [unmodelledMaterials, setUnmodelledMaterials] =
-    useState(UnmodelledMaterials);
-  const [kbobMaterials, setKbobMaterials] = useState([]);
-  const [matches, setMatches] = useState({});
-  const [activeTab, setActiveTab] = useState("modelled");
-  const [newMaterial, setNewMaterial] = useState({
+interface MaterialOption {
+  value: string;
+  label: string;
+  isDisabled?: boolean;
+}
+
+export default function LCACalculatorComponent(): JSX.Element {
+  const [modelledMaterials, setModelledMaterials] = useState<Material[]>(ModelledMaterials);
+  const [unmodelledMaterials, setUnmodelledMaterials] = useState<UnmodelledMaterial[]>(UnmodelledMaterials);
+  const [kbobMaterials, setKbobMaterials] = useState<KbobMaterial[]>([]);
+  const [matches, setMatches] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<'modelled' | 'unmodelled'>('modelled');
+  const [newMaterial, setNewMaterial] = useState<NewMaterial>({
     kbobId: "",
     name: "",
     volume: "",
     ebkp: "",
   });
-  const [results, setResults] = useState({
-    totalCO2: 0,
-    totalUBP: 0,
+  const [results, setResults] = useState<ImpactResults>({
+    gwp: 0,
+    ubp: 0,
+    penr: 0,
     modelledMaterials: 0,
-    unmodelledMaterials: 0,
+    unmodelledMaterials: 0
   });
-  const [outputFormat, setOutputFormat] = useState(OutputFormats.GWP);
+  const [outputFormat, setOutputFormat] = useState<OutputFormats>(OutputFormats.GWP);
 
   useEffect(() => {
     const loadKBOBMaterials = async () => {
@@ -51,7 +62,7 @@ export default function LCACalculatorComponent() {
     setResults(newResults);
   }, [matches, modelledMaterials, kbobMaterials, unmodelledMaterials]);
 
-  const handleMatch = (modelId, kbobId) => {
+  const handleMatch = useCallback((modelId: string, kbobId?: string): void => {
     setMatches((prev) => {
       const newMatches = { ...prev };
       if (kbobId === undefined) {
@@ -61,28 +72,28 @@ export default function LCACalculatorComponent() {
       }
       return newMatches;
     });
-  };
+  }, []);
 
-  const getKbobMaterial = (materialId) => {
+  const getKbobMaterial = useCallback((materialId: string): KbobMaterial | undefined => {
     return kbobMaterials.find((k) => k.id === matches[materialId]);
-  };
+  }, [kbobMaterials, matches]);
 
-  const calculateMaterialImpacts = (material) => {
+  const calculateMaterialImpacts = useCallback((material: Material) => {
     const kbobMaterial = getKbobMaterial(material.id);
     return calculator.calculateMaterialImpact(material, kbobMaterial);
-  };
+  }, [getKbobMaterial]);
 
-  const handleAddMaterial = (e) => {
+  const handleAddMaterial = useCallback((e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
-    if (newMaterial.kbobId && newMaterial.volume > 0) {
-      const newId = Math.max(...unmodelledMaterials.map((m) => m.id), 100) + 1;
+    if (newMaterial.kbobId && parseFloat(newMaterial.volume) > 0) {
+      const newId = Math.max(...unmodelledMaterials.map((m) => parseInt(m.id)), 100) + 1;
       const kbobMaterial = kbobMaterials.find(
         (k) => k.id === newMaterial.kbobId
       );
       setUnmodelledMaterials((prev) => [
         ...prev,
         {
-          id: newId,
+          id: newId.toString(),
           kbobId: newMaterial.kbobId,
           name: kbobMaterial?.nameDE || newMaterial.name,
           volume: parseFloat(newMaterial.volume),
@@ -91,7 +102,68 @@ export default function LCACalculatorComponent() {
       ]);
       setNewMaterial({ kbobId: "", name: "", volume: "", ebkp: "" });
     }
-  };
+  }, [newMaterial, unmodelledMaterials, kbobMaterials]);
+
+  const handleMaterialSelect = useCallback((selectedOption: SingleValue<MaterialOption>, materialId: string): void => {
+    handleMatch(materialId, selectedOption?.value);
+  }, [handleMatch]);
+
+  const handleNewMaterialSelect = useCallback((selectedOption: SingleValue<MaterialOption>): void => {
+    setNewMaterial((prev) => ({
+      ...prev,
+      kbobId: selectedOption?.value || "",
+      name: selectedOption?.label || "",
+    }));
+  }, []);
+
+  const kbobMaterialOptions = useMemo(() => 
+    kbobMaterials.map((kbob) => ({
+      value: kbob.id,
+      label: `${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
+      isDisabled: kbob.density <= 0
+    }))
+  , [kbobMaterials]);
+
+  const selectStyles = useMemo(() => ({
+    control: (provided: any) => ({
+      ...provided,
+      borderRadius: "0.375rem",
+      borderColor: "rgba(209, 213, 219, 1)",
+      boxShadow: "none",
+      "&:hover": {
+        borderColor: "rgba(156, 163, 175, 1)",
+      },
+    }),
+    option: (provided: any, state: any) => ({
+      ...provided,
+      backgroundColor: state.isDisabled
+        ? "transparent"
+        : state.isSelected
+        ? "rgba(229, 231, 235, 1)"
+        : state.isFocused
+        ? "rgba(243, 244, 246, 1)"
+        : "white",
+      color: state.isDisabled ? "rgba(156, 163, 175, 1)" : "black",
+      cursor: state.isDisabled ? "not-allowed" : "default",
+      "&:active": {
+        backgroundColor: !state.isDisabled 
+          ? state.isSelected
+            ? "rgba(229, 231, 235, 1)"
+            : "rgba(243, 244, 246, 1)"
+          : "transparent"
+      }
+    }),
+    menu: (provided: any) => ({
+      ...provided,
+      borderRadius: "0.375rem",
+      boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+    }),
+  }), []);
+
+  const getOptionLabel = useCallback((kbob: KbobMaterial): string => {
+    const densityText = kbob.density <= 0 ? "keine Dichte verfügbar" : `${kbob.density} ${kbob.unit}`;
+    return `${kbob.nameDE} (${densityText})`;
+  }, []);
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -108,7 +180,7 @@ export default function LCACalculatorComponent() {
           <select
             className="w-full p-2 border rounded-md bg-white"
             value={outputFormat}
-            onChange={(e) => setOutputFormat(e.target.value)}
+            onChange={(e) => setOutputFormat(e.target.value as OutputFormats)}
           >
             {Object.entries(OutputFormatLabels).map(([key, label]) => (
               <option key={key} value={key}>
@@ -137,7 +209,7 @@ export default function LCACalculatorComponent() {
           <h3 className="font-bold mb-2">Statistik</h3>
           <div className="space-y-2 text-sm">
             <p>Modellierte Materialien: {results.modelledMaterials}</p>
-            <p>Nicht modellierte Materialien: {results.unmodelledMaterials}</p>
+            <p>Nicht modellierte Materialien: {unmodelledMaterials.length}</p>
           </div>
         </div>
       </div>
@@ -209,69 +281,28 @@ export default function LCACalculatorComponent() {
                         className="w-full p-2 border rounded-md text-center bg-gray-50 cursor-not-allowed"
                         readOnly
                       />
-                      <Select
+                      <Select<MaterialOption>
                         className="w-full"
-                        styles={{
-                          control: (provided) => ({
-                            ...provided,
-                            borderRadius: "0.375rem",
-                            borderColor: "rgba(209, 213, 219, 1)",
-                            boxShadow: "none",
-                            "&:hover": {
-                              borderColor: "rgba(156, 163, 175, 1)",
-                            },
-                          }),
-                          option: (provided, state) => ({
-                            ...provided,
-                            backgroundColor: state.isSelected
-                              ? "rgba(229, 231, 235, 1)"
-                              : state.isFocused
-                              ? "rgba(243, 244, 246, 1)"
-                              : "white",
-                            color: "black",
-                          }),
-                          menu: (provided) => ({
-                            ...provided,
-                            borderRadius: "0.375rem",
-                            boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
-                          }),
-                        }}
-                        options={kbobMaterials.map((kbob) => ({
-                          value: kbob.id,
-                          label: `${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
-                        }))}
+                        styles={selectStyles}
+                        options={kbobMaterialOptions}
                         value={
-                          kbobMaterials.find(
-                            (kbob) => kbob.id === matches[material.id]
-                          )
+                          kbobMaterial
                             ? {
-                                value: matches[material.id],
-                                label: `${
-                                  kbobMaterials.find(
-                                    (kbob) => kbob.id === matches[material.id]
-                                  ).nameDE
-                                } (${
-                                  kbobMaterials.find(
-                                    (kbob) => kbob.id === matches[material.id]
-                                  ).density
-                                } ${
-                                  kbobMaterials.find(
-                                    (kbob) => kbob.id === matches[material.id]
-                                  ).unit
-                                })`,
+                                value: kbobMaterial.id,
+                                label: getOptionLabel(kbobMaterial),
+                                isDisabled: kbobMaterial.density <= 0
                               }
                             : null
                         }
-                        onChange={(selectedOption) =>
-                          handleMatch(material.id, selectedOption?.value)
-                        }
+                        onChange={(selectedOption) => handleMaterialSelect(selectedOption, material.id)}
                         placeholder="Material auswählen..."
                         isClearable
+                        isOptionDisabled={(option) => option.isDisabled}
                       />
                       <input
                         type="number"
                         value={material.volume}
-                        title={material.volume}
+                        title={material.volume.toString()}
                         className="w-full p-2 border rounded-md [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-center bg-gray-50 cursor-not-allowed"
                         readOnly
                       />
@@ -300,62 +331,33 @@ export default function LCACalculatorComponent() {
                   onSubmit={handleAddMaterial}
                   className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-4"
                 >
-                  <Select
+                  <Select<MaterialOption>
                     className="w-full"
-                    styles={{
-                      control: (provided) => ({
-                        ...provided,
-                        borderRadius: "0.375rem",
-                        borderColor: "rgba(209, 213, 219, 1)",
-                        boxShadow: "none",
-                        "&:hover": {
-                          borderColor: "rgba(156, 163, 175, 1)",
-                        },
-                      }),
-                      option: (provided, state) => ({
-                        ...provided,
-                        backgroundColor: state.isSelected
-                          ? "rgba(229, 231, 235, 1)"
-                          : state.isFocused
-                          ? "rgba(243, 244, 246, 1)"
-                          : "white",
-                        color: "black",
-                      }),
-                      menu: (provided) => ({
-                        ...provided,
-                        borderRadius: "0.375rem",
-                        boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
-                      }),
-                    }}
-                    options={kbobMaterials.map((kbob) => ({
-                      value: kbob.id,
-                      label: kbob.nameDE,
-                    }))}
+                    styles={selectStyles}
+                    options={kbobMaterialOptions}
                     value={
-                      kbobMaterials.find(
-                        (kbob) => kbob.id === newMaterial.kbobId
-                      )
+                      newMaterial.kbobId
                         ? {
                             value: newMaterial.kbobId,
-                            label: kbobMaterials.find(
+                            label: getOptionLabel(
+                              kbobMaterials.find(
+                                (kbob) => kbob.id === newMaterial.kbobId
+                              )!
+                            ),
+                            isDisabled: kbobMaterials.find(
                               (kbob) => kbob.id === newMaterial.kbobId
-                            ).nameDE,
+                            )?.density <= 0
                           }
                         : null
                     }
-                    onChange={(selectedOption) =>
-                      setNewMaterial((prev) => ({
-                        ...prev,
-                        kbobId: selectedOption?.value,
-                        name: selectedOption?.label,
-                      }))
-                    }
+                    onChange={handleNewMaterialSelect}
                     placeholder="KBOB Material auswählen..."
                     isClearable
+                    isOptionDisabled={(option) => option.isDisabled}
                   />
                   <select
                     className="w-full p-2 border rounded-md"
-                    value={newMaterial.ebkp || ""}
+                    value={newMaterial.ebkp}
                     onChange={(e) =>
                       setNewMaterial((prev) => ({
                         ...prev,
@@ -365,9 +367,9 @@ export default function LCACalculatorComponent() {
                     required
                   >
                     <option value="">EBKP Code auswählen...</option>
-                    {Object.entries(EBKPCodes).map(([code]) => (
+                    {Object.entries(EBKPCodes).map(([code, label]) => (
                       <option key={code} value={code}>
-                        {code}
+                        {code} - {label}
                       </option>
                     ))}
                   </select>
@@ -406,34 +408,21 @@ export default function LCACalculatorComponent() {
                   {unmodelledMaterials.map((material) => (
                     <div
                       key={material.id}
-                      className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-4 items-center py-2 border-b"
+                      className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-4 items-center"
                     >
-                      <input
-                        type="text"
-                        value={material.name}
-                        title={material.name}
-                        className="w-full p-2 border-0 text-center bg-gray-50 cursor-not-allowed"
-                        readOnly
-                      />
-                      <div>{material.ebkp || "-"}</div>
-                      <input
-                        type="number"
-                        value={material.volume}
-                        title={material.volume}
-                        className="w-full p-2 border-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-center bg-gray-50 cursor-not-allowed"
-                        readOnly
-                      />
+                      <div>{material.name}</div>
+                      <div>{material.ebkp}</div>
+                      <div className="text-center">{material.volume}</div>
                       <button
                         onClick={() => {
                           setUnmodelledMaterials((prev) =>
                             prev.filter((m) => m.id !== material.id)
                           );
                         }}
-                        className="justify-self-end px-2 py-1 text-red-600 hover:text-red-800"
+                        className="px-4 py-2 text-red-600 hover:text-red-800"
                       >
                         Löschen
                       </button>
-                      <div></div>
                     </div>
                   ))}
                 </div>
