@@ -114,7 +114,7 @@ export class LCACalculator {
       kbobMaterials,
       unmodelledMaterials
     );
-    const value = results[outputFormat.toLowerCase()];
+    const value = results[outputFormat];
 
     // Format in millions if value is greater than threshold
     if (value > LCACalculator.MILLION_THRESHOLD) {

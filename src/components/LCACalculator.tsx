@@ -24,7 +24,7 @@ interface MaterialOption {
 }
 
 export default function LCACalculatorComponent(): JSX.Element {
-  const [modelledMaterials, setModelledMaterials] = useState<Material[]>(ModelledMaterials);
+  const [modelledMaterials] = useState<Material[]>(ModelledMaterials);
   const [unmodelledMaterials, setUnmodelledMaterials] = useState<UnmodelledMaterial[]>(UnmodelledMaterials);
   const [kbobMaterials, setKbobMaterials] = useState<KbobMaterial[]>([]);
   const [matches, setMatches] = useState<Record<string, string>>({});
@@ -116,13 +116,13 @@ export default function LCACalculatorComponent(): JSX.Element {
     }));
   }, []);
 
-  const kbobMaterialOptions = useMemo(() => 
+  const kbobMaterialOptions = useMemo(() =>
     kbobMaterials.map((kbob) => ({
       value: kbob.id,
       label: `${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
       isDisabled: kbob.density <= 0
     }))
-  , [kbobMaterials]);
+    , [kbobMaterials]);
 
   const selectStyles = useMemo(() => ({
     control: (provided: any) => ({
@@ -139,14 +139,14 @@ export default function LCACalculatorComponent(): JSX.Element {
       backgroundColor: state.isDisabled
         ? "transparent"
         : state.isSelected
-        ? "rgba(229, 231, 235, 1)"
-        : state.isFocused
-        ? "rgba(243, 244, 246, 1)"
-        : "white",
+          ? "rgba(229, 231, 235, 1)"
+          : state.isFocused
+            ? "rgba(243, 244, 246, 1)"
+            : "white",
       color: state.isDisabled ? "rgba(156, 163, 175, 1)" : "black",
       cursor: state.isDisabled ? "not-allowed" : "default",
       "&:active": {
-        backgroundColor: !state.isDisabled 
+        backgroundColor: !state.isDisabled
           ? state.isSelected
             ? "rgba(229, 231, 235, 1)"
             : "rgba(243, 244, 246, 1)"
@@ -233,21 +233,19 @@ export default function LCACalculatorComponent(): JSX.Element {
             <div className="border-b border-gray-200 mb-6">
               <nav className="-mb-px flex space-x-8">
                 <button
-                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === "modelled"
-                      ? "border-black text-black"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  }`}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === "modelled"
+                    ? "border-black text-black"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    }`}
                   onClick={() => setActiveTab("modelled")}
                 >
                   Modellierte Materialien ({modelledMaterials.length})
                 </button>
                 <button
-                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === "unmodelled"
-                      ? "border-black text-black"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  }`}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === "unmodelled"
+                    ? "border-black text-black"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    }`}
                   onClick={() => setActiveTab("unmodelled")}
                 >
                   Nicht modellierte Materialien ({unmodelledMaterials.length})
@@ -288,16 +286,16 @@ export default function LCACalculatorComponent(): JSX.Element {
                         value={
                           kbobMaterial
                             ? {
-                                value: kbobMaterial.id,
-                                label: getOptionLabel(kbobMaterial),
-                                isDisabled: kbobMaterial.density <= 0
-                              }
+                              value: kbobMaterial.id,
+                              label: getOptionLabel(kbobMaterial),
+                              isDisabled: kbobMaterial.density <= 0
+                            }
                             : null
                         }
                         onChange={(selectedOption) => handleMaterialSelect(selectedOption, material.id)}
                         placeholder="Material auswählen..."
                         isClearable
-                        isOptionDisabled={(option) => option.isDisabled}
+                        isOptionDisabled={(option) => !!option.isDisabled}
                       />
                       <input
                         type="number"
@@ -311,7 +309,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                       </div>
                       <div className="text-right">
                         {calculator.formatImpact(
-                          impacts[outputFormat.toLowerCase()],
+                          impacts[outputFormat],
                           outputFormat
                         )}
                       </div>
@@ -338,22 +336,30 @@ export default function LCACalculatorComponent(): JSX.Element {
                     value={
                       newMaterial.kbobId
                         ? {
-                            value: newMaterial.kbobId,
-                            label: getOptionLabel(
-                              kbobMaterials.find(
-                                (kbob) => kbob.id === newMaterial.kbobId
-                              )!
-                            ),
-                            isDisabled: kbobMaterials.find(
+                          value: newMaterial.kbobId,
+                          label: getOptionLabel(
+                            kbobMaterials.find(
                               (kbob) => kbob.id === newMaterial.kbobId
-                            )?.density <= 0
-                          }
+                            ) ?? {
+                              id: '',
+                              nameDE: 'Unknown Material',
+                              density: 0,
+                              gwp: 0,
+                              ubp: 0,
+                              penr: 0,
+                              unit: ''
+                            }
+                          ),
+                          isDisabled: kbobMaterials.find(
+                            (kbob) => kbob.id === newMaterial.kbobId
+                          )?.density === 0 || false
+                        }
                         : null
                     }
                     onChange={handleNewMaterialSelect}
                     placeholder="KBOB Material auswählen..."
                     isClearable
-                    isOptionDisabled={(option) => option.isDisabled}
+                    isOptionDisabled={(option) => !!option.isDisabled}
                   />
                   <select
                     className="w-full p-2 border rounded-md"
