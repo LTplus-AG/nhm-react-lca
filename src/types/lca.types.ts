@@ -114,3 +114,10 @@ export type EBKPCode = keyof typeof EBKPCodes;
 export const ModelledMaterials: Material[] = [];
 
 export const UnmodelledMaterials: UnmodelledMaterial[] = [];
+
+// Add to your existing types
+export interface FormData {
+  // ... existing fields
+  ebkp: string;
+  // ... other fields
+}

@@ -22,6 +22,7 @@ import { LCACalculator } from "../utils/lcaCalculator";
 import { fetchKBOBMaterials } from "../services/kbobService";
 import Select, { SingleValue } from "react-select";
 import { JsonTransformService } from "../services/jsonTransformService";
+import { ebkpData } from "../data/ebkpData";
 
 const calculator = new LCACalculator();
 
@@ -30,6 +31,9 @@ interface MaterialOption {
   label: string;
   isDisabled?: boolean;
 }
+
+// Add new type for sort options
+type SortOption = "volume" | "name";
 
 export default function LCACalculatorComponent(): JSX.Element {
   const [modelledMaterials, setModelledMaterials] = useState<Material[]>(
@@ -67,6 +71,7 @@ export default function LCACalculatorComponent(): JSX.Element {
     OutputFormats.GWP
   );
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [sortBy, setSortBy] = useState<SortOption>("volume");
 
   useEffect(() => {
     const loadKBOBMaterials = async () => {
@@ -368,306 +373,86 @@ export default function LCACalculatorComponent(): JSX.Element {
     reader.readAsText(file, "UTF-8");
   };
 
+  // Add sort function
+  const sortMaterials = <T extends Material>(materials: T[]) => {
+    return [...materials].sort((a, b) => {
+      if (sortBy === "volume") {
+        return b.volume - a.volume;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-6">
-      <div className="bg-card rounded-lg shadow p-6">
-        <h2 className="text-xl font-bold mb-4 text-foreground">
-          Projektübersicht
-        </h2>
-        <div className="space-y-6">
-          <div>
-            <h3 className="font-semibold mb-2 text-foreground">Juch-Areal</h3>
-            <p className="text-muted-foreground">Phase: 31 Vorprojekt</p>
-          </div>
+    <div className="w-full h-full">
+      <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] gap-6">
+        <div className="bg-card rounded-lg shadow p-6 h-fit">
+          <h2 className="text-xl font-bold mb-4 text-foreground">
+            Projektübersicht
+          </h2>
+          <div className="space-y-6">
+            <div>
+              <h3 className="font-semibold mb-2 text-foreground">Juch-Areal</h3>
+              <p className="text-muted-foreground">Phase: 31 Vorprojekt</p>
+            </div>
 
-          <div>
-            <h3 className="font-semibold mb-2 text-foreground">
-              Ausgabeformat
-            </h3>
-            <select
-              value={outputFormat}
-              onChange={(e) => setOutputFormat(e.target.value as OutputFormats)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {Object.entries(OutputFormatLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div>
+              <h3 className="font-semibold mb-2 text-foreground">
+                Ausgabeformat
+              </h3>
+              <select
+                value={outputFormat}
+                onChange={(e) =>
+                  setOutputFormat(e.target.value as OutputFormats)
+                }
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {Object.entries(OutputFormatLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <h3 className="font-semibold mb-2 text-foreground">
-              Gesamtergebnis
-            </h3>
-            <div className="bg-secondary/50 p-4 rounded-md">
-              <p className="text-3xl font-bold text-foreground">
-                {calculator.calculateGrandTotal(
-                  modelledMaterials,
-                  matches,
-                  kbobMaterials,
-                  outputFormat,
-                  unmodelledMaterials
-                )}
-                <span className="text-lg ml-2 font-normal text-muted-foreground">
-                  {OutputFormatUnits[outputFormat]}
-                </span>
+            <div>
+              <h3 className="font-semibold mb-2 text-foreground">
+                Gesamtergebnis
+              </h3>
+              <div className="bg-secondary/50 p-4 rounded-md">
+                <p className="text-3xl font-bold text-foreground">
+                  {calculator.calculateGrandTotal(
+                    modelledMaterials,
+                    matches,
+                    kbobMaterials,
+                    outputFormat,
+                    unmodelledMaterials
+                  )}
+                  <span className="text-lg ml-2 font-normal text-muted-foreground">
+                    {OutputFormatUnits[outputFormat]}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-semibold mb-2 text-foreground">Statistik</h3>
+              <p className="text-sm text-muted-foreground">
+                Modellierte Materialien: {modelledMaterials.length}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Nicht modellierte Materialien: {unmodelledMaterials.length}
               </p>
             </div>
-          </div>
 
-          <div>
-            <h3 className="font-semibold mb-2 text-foreground">Statistik</h3>
-            <p className="text-sm text-muted-foreground">
-              Modellierte Materialien: {modelledMaterials.length}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Nicht modellierte Materialien: {unmodelledMaterials.length}
-            </p>
-          </div>
-
-          <div>
-            <h3 className="font-semibold mb-2 text-foreground">Aktionen</h3>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <div className="flex gap-4 items-center">
-                  <button
-                    onClick={handleUploadClick}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md flex items-center gap-2"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17 8 12 3 7 8" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                    JSON hochladen
-                  </button>
-                  {uploadProgress > 0 && uploadProgress < 100 && (
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-24 bg-secondary rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary transition-all duration-300"
-                          style={{ width: `${uploadProgress}%` }}
-                        />
-                      </div>
-                      <span className="text-sm text-muted-foreground">
-                        {uploadProgress.toFixed(0)}%
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={handleExportCSV}
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
-              >
-                Export CSV
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-card rounded-lg shadow p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-foreground">Materialien</h2>
-        </div>
-
-        <div className="space-x-2 mb-6">
-          <button
-            onClick={() => setActiveTab("modelled")}
-            className={`px-4 py-2 rounded-md transition-colors ${
-              activeTab === "modelled"
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-            }`}
-          >
-            Modellierte Materialien ({modelledMaterials.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("unmodelled")}
-            className={`px-4 py-2 rounded-md transition-colors ${
-              activeTab === "unmodelled"
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-            }`}
-          >
-            Nicht modellierte Materialien ({unmodelledMaterials.length})
-          </button>
-        </div>
-
-        {activeTab === "modelled" ? (
-          <div className="grid grid-cols-1 gap-4 w-full">
-            {modelledMaterials.map((material, index) => (
-              <div
-                key={index}
-                className="bg-card border border-border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow w-full"
-              >
-                <div className="flex justify-between items-center w-full mb-4">
-                  <div className="flex items-center gap-4 flex-1">
-                    <h3 className="font-medium text-foreground">
-                      {material.name}
-                    </h3>
-                    <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
-                      {material.volume.toFixed(2)} m³
-                    </span>
-                  </div>
-                </div>
-                <div className="w-full">
-                  <Select
-                    value={
-                      matches[material.id]
-                        ? {
-                            value: matches[material.id],
-                            label: kbobMaterials.find(
-                              (k) => k.id === matches[material.id]
-                            )?.nameDE,
-                          }
-                        : null
-                    }
-                    onChange={(newValue) =>
-                      handleMaterialSelect(newValue, material.id)
-                    }
-                    options={kbobMaterialOptions}
-                    styles={selectStyles}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <>
-            <div className="mb-6 bg-card border border-border rounded-lg p-4">
-              <h3 className="text-lg font-medium mb-4">
-                Neues Material hinzufügen
-              </h3>
-              <form
-                onSubmit={handleAddUnmodelledMaterial}
-                className="space-y-4"
-              >
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Name
-                    </label>
-                    <input
-                      type="text"
-                      value={newUnmodelledMaterial.name}
-                      onChange={(e) =>
-                        setNewUnmodelledMaterial({
-                          ...newUnmodelledMaterial,
-                          name: e.target.value,
-                        })
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      EBKP
-                    </label>
-                    <input
-                      type="text"
-                      value={newUnmodelledMaterial.ebkp}
-                      onChange={(e) =>
-                        setNewUnmodelledMaterial({
-                          ...newUnmodelledMaterial,
-                          ebkp: e.target.value,
-                        })
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Volumen (m³)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newUnmodelledMaterial.volume}
-                      onChange={(e) =>
-                        setNewUnmodelledMaterial({
-                          ...newUnmodelledMaterial,
-                          volume: parseFloat(e.target.value),
-                        })
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      KBOB Material
-                    </label>
-                    <Select
-                      value={
-                        newUnmodelledMaterial.kbobId
-                          ? {
-                              value: newUnmodelledMaterial.kbobId,
-                              label: kbobMaterials.find(
-                                (k) => k.id === newUnmodelledMaterial.kbobId
-                              )?.nameDE,
-                            }
-                          : null
-                      }
-                      onChange={(newValue) =>
-                        setNewUnmodelledMaterial({
-                          ...newUnmodelledMaterial,
-                          kbobId: newValue?.value,
-                        })
-                      }
-                      options={kbobMaterialOptions}
-                      styles={selectStyles}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
-                  >
-                    Hinzufügen
-                  </button>
-                </div>
-              </form>
-            </div>
-            <div className="grid grid-cols-1 gap-4 w-full">
-              {unmodelledMaterials.map((material, index) => (
-                <div
-                  key={index}
-                  className="bg-card border border-border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow w-full"
-                >
-                  <div className="flex justify-between items-center w-full mb-4">
-                    <div className="flex items-center gap-4 flex-1">
-                      <h3 className="font-medium text-foreground flex items-center gap-2">
-                        {material.name}
-                        <span className="text-xs bg-yellow-200/10 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded">
-                          Nicht modelliert
-                        </span>
-                      </h3>
-                      <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
-                        {material.volume.toFixed(2)} m³
-                      </span>
-                    </div>
+            <div>
+              <h3 className="font-semibold mb-2 text-foreground">Aktionen</h3>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <div className="flex gap-4 items-center">
                     <button
-                      onClick={() => handleRemoveUnmodelledMaterial(index)}
-                      className="text-destructive hover:text-destructive/90 transition-colors ml-4"
+                      onClick={handleUploadClick}
+                      className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md flex items-center gap-2"
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -680,20 +465,104 @@ export default function LCACalculatorComponent(): JSX.Element {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
-                        <path d="M3 6h18"></path>
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
                       </svg>
+                      JSON hochladen
                     </button>
+                    {uploadProgress > 0 && uploadProgress < 100 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-24 bg-secondary rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary transition-all duration-300"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {uploadProgress.toFixed(0)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={handleExportCSV}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
+                >
+                  Export CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card rounded-lg shadow p-6 w-full">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-foreground">Materialien</h2>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground">
+                Sortieren nach:
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+              >
+                <option value="volume">Volumen</option>
+                <option value="name">Name</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-x-2 mb-6">
+            <button
+              onClick={() => setActiveTab("modelled")}
+              className={`px-4 py-2 rounded-md transition-colors ${
+                activeTab === "modelled"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              }`}
+            >
+              Modellierte Materialien ({modelledMaterials.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("unmodelled")}
+              className={`px-4 py-2 rounded-md transition-colors ${
+                activeTab === "unmodelled"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              }`}
+            >
+              Nicht modellierte Materialien ({unmodelledMaterials.length})
+            </button>
+          </div>
+
+          {activeTab === "modelled" ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full">
+              {sortMaterials(modelledMaterials).map((material, index) => (
+                <div
+                  key={index}
+                  className="bg-card border border-border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow w-full"
+                >
+                  <div className="flex justify-between items-center w-full mb-4">
+                    <div className="flex items-center gap-4 flex-1">
+                      <h3 className="font-medium text-foreground">
+                        {material.name}
+                      </h3>
+                      <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
+                        {material.volume.toFixed(2)} m³
+                      </span>
+                    </div>
                   </div>
                   <div className="w-full">
                     <Select
                       value={
-                        material.kbobId
+                        matches[material.id]
                           ? {
-                              value: material.kbobId,
+                              value: matches[material.id],
                               label: kbobMaterials.find(
-                                (k) => k.id === material.kbobId
+                                (k) => k.id === matches[material.id]
                               )?.nameDE,
                             }
                           : null
@@ -709,9 +578,190 @@ export default function LCACalculatorComponent(): JSX.Element {
                 </div>
               ))}
             </div>
-          </>
-        )}
+          ) : (
+            <>
+              <div className="mb-6 bg-card border border-border rounded-lg p-4">
+                <h3 className="text-lg font-medium mb-4">
+                  Neues Material hinzufügen
+                </h3>
+                <form
+                  onSubmit={handleAddUnmodelledMaterial}
+                  className="space-y-4"
+                >
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Name
+                      </label>
+                      <input
+                        type="text"
+                        value={newUnmodelledMaterial.name}
+                        onChange={(e) =>
+                          setNewUnmodelledMaterial({
+                            ...newUnmodelledMaterial,
+                            name: e.target.value,
+                          })
+                        }
+                        className="w-full rounded-md border border-border bg-background px-3 py-2"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        EBKP
+                      </label>
+                      <Select
+                        value={
+                          newUnmodelledMaterial.ebkp
+                            ? {
+                                value: newUnmodelledMaterial.ebkp,
+                                label: `${newUnmodelledMaterial.ebkp} - ${
+                                  ebkpData.find(
+                                    (item) =>
+                                      item.code === newUnmodelledMaterial.ebkp
+                                  )?.bezeichnung || ""
+                                }`,
+                              }
+                            : null
+                        }
+                        onChange={(newValue) =>
+                          setNewUnmodelledMaterial({
+                            ...newUnmodelledMaterial,
+                            ebkp: newValue?.value || "",
+                          })
+                        }
+                        options={ebkpData.map((item) => ({
+                          value: item.code,
+                          label: `${item.code} - ${item.bezeichnung}`,
+                        }))}
+                        styles={selectStyles}
+                        className="w-full"
+                        placeholder="Wählen Sie einen EBKP-Code"
+                        isClearable
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Volumen (m³)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newUnmodelledMaterial.volume}
+                        onChange={(e) =>
+                          setNewUnmodelledMaterial({
+                            ...newUnmodelledMaterial,
+                            volume: parseFloat(e.target.value),
+                          })
+                        }
+                        className="w-full rounded-md border border-border bg-background px-3 py-2"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        KBOB Material
+                      </label>
+                      <Select
+                        value={
+                          newUnmodelledMaterial.kbobId
+                            ? {
+                                value: newUnmodelledMaterial.kbobId,
+                                label: kbobMaterials.find(
+                                  (k) => k.id === newUnmodelledMaterial.kbobId
+                                )?.nameDE,
+                              }
+                            : null
+                        }
+                        onChange={(newValue) =>
+                          setNewUnmodelledMaterial({
+                            ...newUnmodelledMaterial,
+                            kbobId: newValue?.value,
+                          })
+                        }
+                        options={kbobMaterialOptions}
+                        styles={selectStyles}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
+                    >
+                      Hinzufügen
+                    </button>
+                  </div>
+                </form>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full">
+                {sortMaterials(unmodelledMaterials).map((material, index) => (
+                  <div
+                    key={index}
+                    className="bg-card border border-border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow w-full"
+                  >
+                    <div className="flex justify-between items-center w-full mb-4">
+                      <div className="flex items-center gap-4 flex-1">
+                        <h3 className="font-medium text-foreground flex items-center gap-2">
+                          {material.name}
+                          <span className="text-xs bg-yellow-200/10 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded">
+                            Nicht modelliert
+                          </span>
+                        </h3>
+                        <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
+                          {material.volume.toFixed(2)} m³
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveUnmodelledMaterial(index)}
+                        className="text-destructive hover:text-destructive/90 transition-colors ml-4"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M3 6h18"></path>
+                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="w-full">
+                      <Select
+                        value={
+                          material.kbobId
+                            ? {
+                                value: material.kbobId,
+                                label: kbobMaterials.find(
+                                  (k) => k.id === material.kbobId
+                                )?.nameDE,
+                              }
+                            : null
+                        }
+                        onChange={(newValue) =>
+                          handleMaterialSelect(newValue, material.id)
+                        }
+                        options={kbobMaterialOptions}
+                        styles={selectStyles}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
+
       <input
         type="file"
         ref={fileInputRef}
