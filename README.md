@@ -101,7 +101,7 @@ Die Umweltauswirkungsdaten stammen aus den öffentlichen Daten der KBOB (Koordin
 
 ## Mitwirken
 
-Pull Requests sind willkommen. Für größere Änderungen erstellen Sie bitte zuerst ein Issue, um die gewünschten Änderungen zu besprechen.
+Pull Requests sind willkommen. Für grössere Änderungen erstellen Sie bitte zuerst ein Issue, um die gewünschten Änderungen zu besprechen.
 
 ## Lizenz
 
