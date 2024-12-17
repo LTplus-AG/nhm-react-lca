@@ -5,7 +5,7 @@
 [![React](https://img.shields.io/badge/React-18.3-61DAFB.svg?logo=react)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6.svg?logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3.4-38B2AC.svg?logo=tailwind-css)](https://tailwindcss.com/)
-[![Version](https://img.shields.io/badge/Version-0.0.0-brightgreen.svg)](https://github.com/LTplus-AG/LCA-Cost-NHMzh)
+[![Version](https://img.shields.io/badge/Version-0.0.1-brightgreen.svg)](https://github.com/LTplus-AG/LCA-Cost-NHMzh)
 
 Weboberfläche für NHMzh Module Kostenberechnung & LCA. Diese Benutzeroberfläche bietet die Frontend-Lösung für die Interaktion mit dem NHMzh-Modulsystem.
 
