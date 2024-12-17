@@ -18,9 +18,19 @@ interface KbobMaterial {
   biogenicCarbon: number;
 }
 
-function parseDensity(densityStr: string | null): number {
-  if (!densityStr) return 0;
+// Add interface for raw material from API
+interface RawKbobMaterial {
+  uuid: string;
+  nameDE?: string;
+  density?: string;
+  unit?: string;
+  gwpTotal?: number;
+  ubp21Total?: number;
+  primaryEnergyNonRenewableTotal?: number;
+}
 
+function parseDensity(densityStr: string | null | undefined): number {
+  if (!densityStr) return 0;
   const numericValue = parseFloat(densityStr.replace(/[^\d.]/g, ""));
   return isNaN(numericValue) ? 0 : numericValue;
 }
@@ -65,7 +75,7 @@ export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
 
       // Transform and return materials
       const transformedMaterials: KbobMaterial[] = data.materials
-        .map((material: any) => ({
+        .map((material: RawKbobMaterial) => ({
           id: material.uuid,
           nameDE: material.nameDE || "",
           density: parseDensity(material.density),
@@ -74,7 +84,7 @@ export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
           ubp: material.ubp21Total || 0,
           penr: material.primaryEnergyNonRenewableTotal || 0,
         }))
-        .filter((material) => material.nameDE);
+        .filter((material: KbobMaterial) => material.nameDE);
 
       console.log(
         `Successfully fetched ${transformedMaterials.length} KBOB materials`

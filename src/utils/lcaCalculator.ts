@@ -1,4 +1,11 @@
-import { OutputFormats, Material, UnmodelledMaterial, KbobMaterial, ImpactResults, MaterialImpact } from "../types/lca.types";
+import {
+  OutputFormats,
+  Material,
+  UnmodelledMaterial,
+  KbobMaterial,
+  ImpactResults,
+  MaterialImpact,
+} from "../types/lca.types";
 
 export class LCACalculator {
   private static readonly MILLION_THRESHOLD = 400000;
@@ -28,7 +35,7 @@ export class LCACalculator {
     };
 
     // Create a Map for faster lookups
-    const kbobMaterialMap = new Map(kbobMaterials.map(k => [k.id, k]));
+    const kbobMaterialMap = new Map(kbobMaterials.map((k) => [k.id, k]));
 
     // Calculate impacts for modelled materials
     for (const material of materials) {
@@ -68,7 +75,12 @@ export class LCACalculator {
       return { gwp: 0, ubp: 0, penr: 0 };
     }
 
-    const mass = kbobMaterial.density ? material.volume * kbobMaterial.density : material.volume;
+    const mass = kbobMaterial.density
+      ? (typeof material.volume === "number" ? material.volume : 0) *
+        kbobMaterial.density
+      : typeof material.volume === "number"
+      ? material.volume
+      : 0;
 
     return {
       gwp: mass * kbobMaterial.gwp,
@@ -77,10 +89,16 @@ export class LCACalculator {
     };
   }
 
-  formatImpact(value: number | string, type: OutputFormats, includeUnit = false): string {
+  formatImpact(
+    value: number | string,
+    type: OutputFormats,
+    includeUnit = false
+  ): string {
     if (typeof value !== "number") return "0";
 
-    const formattedNumber = LCACalculator.NUMBER_FORMAT_DE.format(Math.round(value));
+    const formattedNumber = LCACalculator.NUMBER_FORMAT_DE.format(
+      Math.round(value)
+    );
 
     if (!includeUnit) return formattedNumber;
 
@@ -118,7 +136,9 @@ export class LCACalculator {
 
     // Format in millions if value is greater than threshold
     if (value > LCACalculator.MILLION_THRESHOLD) {
-      return LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) + " Mio.";
+      return (
+        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) + " Mio."
+      );
     }
 
     return this.formatImpact(value, outputFormat);

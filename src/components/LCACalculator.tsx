@@ -1,28 +1,25 @@
 import React, {
-  useState,
-  useEffect,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
+import Select, { SingleValue } from "react-select";
+import { ebkpData } from "../data/ebkpData";
+import { jsonOperations } from "../services/jsonOperations";
+import { fetchKBOBMaterials } from "../services/kbobService";
 import {
   ModelledMaterials as DefaultModelledMaterials,
-  UnmodelledMaterials,
-  OutputFormats,
-  OutputFormatLabels,
-  EBKPCodes,
-  Material,
-  UnmodelledMaterial,
   KbobMaterial,
-  NewMaterial,
-  ImpactResults,
+  Material,
+  OutputFormatLabels,
+  OutputFormats,
   OutputFormatUnits,
+  UnmodelledMaterial,
+  UnmodelledMaterials,
 } from "../types/lca.types.ts";
 import { LCACalculator } from "../utils/lcaCalculator";
-import { fetchKBOBMaterials } from "../services/kbobService";
-import Select, { SingleValue } from "react-select";
-import { JsonTransformService } from "../services/jsonTransformService";
-import { ebkpData } from "../data/ebkpData";
 
 const calculator = new LCACalculator();
 
@@ -46,27 +43,14 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [activeTab, setActiveTab] = useState<"modelled" | "unmodelled">(
     "modelled"
   );
-  const [newMaterial, setNewMaterial] = useState<NewMaterial>({
-    kbobId: "",
-    name: "",
-    volume: "",
-    ebkp: "",
-  });
   const [newUnmodelledMaterial, setNewUnmodelledMaterial] =
     useState<UnmodelledMaterial>({
       id: "",
       name: "",
-      volume: 0,
+      volume: "",
       ebkp: "",
       kbobId: "",
     });
-  const [results, setResults] = useState<ImpactResults>({
-    gwp: 0,
-    ubp: 0,
-    penr: 0,
-    modelledMaterials: 0,
-    unmodelledMaterials: 0,
-  });
   const [outputFormat, setOutputFormat] = useState<OutputFormats>(
     OutputFormats.GWP
   );
@@ -81,16 +65,6 @@ export default function LCACalculatorComponent(): JSX.Element {
     loadKBOBMaterials();
   }, []);
 
-  useEffect(() => {
-    const newResults = calculator.calculateImpact(
-      modelledMaterials,
-      matches,
-      kbobMaterials,
-      unmodelledMaterials
-    );
-    setResults(newResults);
-  }, [matches, modelledMaterials, kbobMaterials, unmodelledMaterials]);
-
   const handleMatch = useCallback((modelId: string, kbobId?: string): void => {
     setMatches((prev) => {
       const newMatches = { ...prev };
@@ -103,52 +77,13 @@ export default function LCACalculatorComponent(): JSX.Element {
     });
   }, []);
 
-  const getKbobMaterial = useCallback(
-    (materialId: string): KbobMaterial | undefined => {
-      return kbobMaterials.find((k) => k.id === matches[materialId]);
-    },
-    [kbobMaterials, matches]
-  );
-
-  const calculateMaterialImpacts = useCallback(
-    (material: Material) => {
-      const kbobMaterial = getKbobMaterial(material.id);
-      return calculator.calculateMaterialImpact(material, kbobMaterial);
-    },
-    [getKbobMaterial]
-  );
-
-  const handleAddMaterial = useCallback(
-    (e: React.FormEvent<HTMLFormElement>): void => {
-      e.preventDefault();
-      if (newMaterial.kbobId && parseFloat(newMaterial.volume) > 0) {
-        const newId =
-          Math.max(...unmodelledMaterials.map((m) => parseInt(m.id)), 100) + 1;
-        const kbobMaterial = kbobMaterials.find(
-          (k) => k.id === newMaterial.kbobId
-        );
-        setUnmodelledMaterials((prev) => [
-          ...prev,
-          {
-            id: newId.toString(),
-            kbobId: newMaterial.kbobId,
-            name: kbobMaterial?.nameDE || newMaterial.name,
-            volume: parseFloat(newMaterial.volume),
-            ebkp: newMaterial.ebkp,
-          },
-        ]);
-        setNewMaterial({ kbobId: "", name: "", volume: "", ebkp: "" });
-      }
-    },
-    [newMaterial, unmodelledMaterials, kbobMaterials]
-  );
-
   const handleAddUnmodelledMaterial = useCallback(
     (e: React.FormEvent<HTMLFormElement>): void => {
       e.preventDefault();
       if (
         newUnmodelledMaterial.name &&
         newUnmodelledMaterial.ebkp &&
+        typeof newUnmodelledMaterial.volume === "number" &&
         newUnmodelledMaterial.volume > 0
       ) {
         const newId =
@@ -166,7 +101,7 @@ export default function LCACalculatorComponent(): JSX.Element {
         setNewUnmodelledMaterial({
           id: "",
           name: "",
-          volume: 0,
+          volume: "",
           ebkp: "",
           kbobId: "",
         });
@@ -180,17 +115,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       handleMatch(materialId, selectedOption?.value);
     },
     [handleMatch]
-  );
-
-  const handleNewMaterialSelect = useCallback(
-    (selectedOption: SingleValue<MaterialOption>): void => {
-      setNewMaterial((prev) => ({
-        ...prev,
-        kbobId: selectedOption?.value || "",
-        name: selectedOption?.label || "",
-      }));
-    },
-    []
   );
 
   const handleRemoveUnmodelledMaterial = useCallback(
@@ -259,65 +183,14 @@ export default function LCACalculatorComponent(): JSX.Element {
     []
   );
 
-  const getOptionLabel = useCallback((kbob: KbobMaterial): string => {
-    const densityText =
-      kbob.density <= 0
-        ? "keine Dichte verfügbar"
-        : `${kbob.density} ${kbob.unit}`;
-    return `${kbob.nameDE} (${densityText})`;
-  }, []);
-
   const handleExportJSON = useCallback(() => {
-    const modelledData = modelledMaterials.map((material) => {
-      const kbobMaterial = getKbobMaterial(material.id);
-      return {
-        ifc_material: material.name,
-        kbob_material: kbobMaterial?.nameDE || "",
-        kbob_id: matches[material.id] || "",
-        type: "modelled",
-        is_modelled: true,
-        ebkp: "", // Empty for modelled materials as requested
-        quantity: material.volume,
-      };
-    });
-
-    const unmodelledData = unmodelledMaterials.map((material) => {
-      const kbobMaterial = kbobMaterials.find((k) => k.id === material.kbobId);
-      return {
-        ifc_material: material.name,
-        kbob_material: kbobMaterial?.nameDE || "",
-        kbob_id: material.kbobId || "",
-        type: "unmodelled",
-        is_modelled: false,
-        ebkp: material.ebkp || "",
-        quantity: material.volume,
-      };
-    });
-
-    const jsonData = [...modelledData, ...unmodelledData];
-
-    const blob = new Blob([JSON.stringify(jsonData, null, 2)], {
-      type: "application/json",
-    });
-
-    const timestamp = new Date().toISOString().replace(/[-:]/g, "").split("T");
-    const date = timestamp[0];
-    const time = timestamp[1].split(".")[0].replace(/:/g, "");
-    const filename = `juch_p31_${date}_${time}.json`;
-
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [
-    modelledMaterials,
-    unmodelledMaterials,
-    matches,
-    kbobMaterials,
-    getKbobMaterial,
-  ]);
+    jsonOperations.handleExportJSON(
+      modelledMaterials,
+      unmodelledMaterials,
+      matches,
+      kbobMaterials
+    );
+  }, [modelledMaterials, unmodelledMaterials, matches, kbobMaterials]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -325,49 +198,39 @@ export default function LCACalculatorComponent(): JSX.Element {
     fileInputRef.current?.click();
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target?.result as string;
-      try {
-        const materials = await JsonTransformService.processJsonStream(
-          text,
-          (progress) => setUploadProgress(progress)
-        );
+    try {
+      const modelledMaterials = await jsonOperations.handleFileUpload(
+        file,
+        (progress) => setUploadProgress(progress)
+      );
 
-        // Convert materials to your existing format and update state
-        const modelledMaterials = materials
-          .filter((m) => m.isModelled)
-          .map((m) => ({
-            id: m.id,
-            name: m.mat_ifc,
-            volume: m.netvolume,
-            ebkp: m.ebkph,
-          }));
+      setModelledMaterials(modelledMaterials);
+      setUploadProgress(0);
 
-        setModelledMaterials(modelledMaterials);
-        setUploadProgress(0);
-
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-      } catch (error) {
-        console.error("Error processing JSON file:", error);
-        // Add error handling UI if needed
-        alert("Fehler beim Verarbeiten der JSON-Datei");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
       }
-    };
-    reader.readAsText(file, "UTF-8");
+    } catch (error) {
+      console.error("Error processing JSON file:", error);
+      alert("Fehler beim Verarbeiten der JSON-Datei");
+    }
   };
 
   // Add sort function
-  const sortMaterials = <T extends Material>(materials: T[]) => {
+  const sortMaterials = <T extends { volume: number | ""; name: string }>(
+    materials: T[]
+  ) => {
     return [...materials].sort((a, b) => {
       if (sortBy === "volume") {
-        return b.volume - a.volume;
+        const volA = typeof a.volume === "number" ? a.volume : 0;
+        const volB = typeof b.volume === "number" ? b.volume : 0;
+        return volB - volA;
       }
       return a.name.localeCompare(b.name);
     });
@@ -436,48 +299,149 @@ export default function LCACalculatorComponent(): JSX.Element {
             </div>
 
             <div>
-              <h3 className="font-semibold mb-2 text-foreground">Aktionen</h3>
-              <div className="space-y-2">
-                <button
-                  onClick={handleUploadClick}
-                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md flex items-center justify-center gap-2"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
-                  </svg>
-                  JSON hochladen
-                </button>
-                {uploadProgress > 0 && uploadProgress < 100 && (
-                  <div className="w-full flex items-center gap-2">
-                    <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all duration-300"
-                        style={{ width: `${uploadProgress}%` }}
-                      />
-                    </div>
-                    <span className="text-sm text-muted-foreground">
-                      {uploadProgress.toFixed(0)}%
+              <h3 className="font-semibold mb-4 text-foreground">Prozess</h3>
+              <div className="space-y-4">
+                {/* Step 1 */}
+                <div className="relative">
+                  <div className="flex items-center gap-2">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-medium">
+                      1
                     </span>
+                    <h4 className="font-medium">Daten importieren</h4>
                   </div>
-                )}
-                <button
-                  onClick={handleExportJSON}
-                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
-                >
-                  Export JSON
-                </button>
+                  <div className="mt-2 pl-8">
+                    <button
+                      onClick={handleUploadClick}
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md flex items-center justify-center gap-2"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      JSON hochladen
+                    </button>
+                    {uploadProgress > 0 && uploadProgress < 100 && (
+                      <div className="w-full flex items-center gap-2 mt-2">
+                        <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary transition-all duration-300"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {uploadProgress.toFixed(0)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div className="relative">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium ${
+                        modelledMaterials.length > 0
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      2
+                    </span>
+                    <h4
+                      className={`font-medium ${
+                        modelledMaterials.length === 0
+                          ? "text-muted-foreground"
+                          : ""
+                      }`}
+                    >
+                      Materialien zuordnen
+                    </h4>
+                  </div>
+                  <div className="mt-2 pl-8">
+                    {modelledMaterials.length > 0 ? (
+                      <>
+                        <div className="w-full flex items-center gap-2 mb-2">
+                          <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary transition-all duration-300"
+                              style={{
+                                width: `${
+                                  (modelledMaterials.filter(
+                                    (m) => matches[m.id]
+                                  ).length /
+                                    modelledMaterials.length) *
+                                  100
+                                }%`,
+                              }}
+                            />
+                          </div>
+                          <span className="text-sm text-muted-foreground whitespace-nowrap">
+                            {
+                              modelledMaterials.filter((m) => matches[m.id])
+                                .length
+                            }{" "}
+                            von {modelledMaterials.length}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {modelledMaterials.filter((m) => matches[m.id])
+                            .length === modelledMaterials.length
+                            ? "Alle Materialien zugeordnet"
+                            : "Bitte ordnen Sie die restlichen Materialien zu"}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Bitte zuerst Daten importieren
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div className="relative">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium ${
+                        Object.keys(matches).length > 0
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      3
+                    </span>
+                    <h4
+                      className={`font-medium ${
+                        Object.keys(matches).length === 0
+                          ? "text-muted-foreground"
+                          : ""
+                      }`}
+                    >
+                      Ergebnis exportieren
+                    </h4>
+                  </div>
+                  <div className="mt-2 pl-8">
+                    <button
+                      onClick={handleExportJSON}
+                      disabled={Object.keys(matches).length === 0}
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-md transition-colors"
+                    >
+                      Export JSON
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -501,26 +465,32 @@ export default function LCACalculatorComponent(): JSX.Element {
             </div>
           </div>
 
-          <div className="space-x-2 mb-6">
+          <div className="flex space-x-1 mb-6 border-b border-border">
             <button
               onClick={() => setActiveTab("modelled")}
-              className={`px-4 py-2 rounded-md transition-colors ${
+              className={`px-4 py-2 text-sm font-medium transition-colors relative ${
                 activeTab === "modelled"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Modellierte Materialien ({modelledMaterials.length})
+              Modellierte Materialien
+              {activeTab === "modelled" && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
             </button>
             <button
               onClick={() => setActiveTab("unmodelled")}
-              className={`px-4 py-2 rounded-md transition-colors ${
+              className={`px-4 py-2 text-sm font-medium transition-colors relative ${
                 activeTab === "unmodelled"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Nicht modellierte Materialien ({unmodelledMaterials.length})
+              Nicht modellierte Materialien
+              {activeTab === "unmodelled" && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
             </button>
           </div>
 
@@ -537,7 +507,10 @@ export default function LCACalculatorComponent(): JSX.Element {
                         {material.name}
                       </h3>
                       <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
-                        {material.volume.toFixed(2)} m³
+                        {typeof material.volume === "number"
+                          ? material.volume.toFixed(2)
+                          : "0.00"}{" "}
+                        m³
                       </span>
                     </div>
                   </div>
@@ -545,15 +518,17 @@ export default function LCACalculatorComponent(): JSX.Element {
                     <Select
                       value={
                         matches[material.id]
-                          ? {
+                          ? ({
                               value: matches[material.id],
-                              label: kbobMaterials.find(
-                                (k) => k.id === matches[material.id]
-                              )?.nameDE,
-                            }
+                              label:
+                                kbobMaterials.find(
+                                  (k) => k.id === matches[material.id]
+                                )?.nameDE || "",
+                              isDisabled: false,
+                            } as MaterialOption)
                           : null
                       }
-                      onChange={(newValue) =>
+                      onChange={(newValue: SingleValue<MaterialOption>) =>
                         handleMaterialSelect(newValue, material.id)
                       }
                       options={kbobMaterialOptions}
@@ -633,11 +608,18 @@ export default function LCACalculatorComponent(): JSX.Element {
                       <input
                         type="number"
                         step="0.01"
-                        value={newUnmodelledMaterial.volume}
+                        value={
+                          newUnmodelledMaterial.volume === ""
+                            ? ""
+                            : newUnmodelledMaterial.volume
+                        }
                         onChange={(e) =>
                           setNewUnmodelledMaterial({
                             ...newUnmodelledMaterial,
-                            volume: parseFloat(e.target.value),
+                            volume:
+                              e.target.value === ""
+                                ? ""
+                                : parseFloat(e.target.value),
                           })
                         }
                         className="w-full rounded-md border border-border bg-background px-3 py-2"
@@ -651,18 +633,20 @@ export default function LCACalculatorComponent(): JSX.Element {
                       <Select
                         value={
                           newUnmodelledMaterial.kbobId
-                            ? {
+                            ? ({
                                 value: newUnmodelledMaterial.kbobId,
-                                label: kbobMaterials.find(
-                                  (k) => k.id === newUnmodelledMaterial.kbobId
-                                )?.nameDE,
-                              }
+                                label:
+                                  kbobMaterials.find(
+                                    (k) => k.id === newUnmodelledMaterial.kbobId
+                                  )?.nameDE || "",
+                                isDisabled: false,
+                              } as MaterialOption)
                             : null
                         }
-                        onChange={(newValue) =>
+                        onChange={(newValue: SingleValue<MaterialOption>) =>
                           setNewUnmodelledMaterial({
                             ...newUnmodelledMaterial,
-                            kbobId: newValue?.value,
+                            kbobId: newValue?.value || "",
                           })
                         }
                         options={kbobMaterialOptions}
@@ -701,7 +685,10 @@ export default function LCACalculatorComponent(): JSX.Element {
                           )}
                         </h3>
                         <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
-                          {material.volume.toFixed(2)} m³
+                          {typeof material.volume === "number"
+                            ? material.volume.toFixed(2)
+                            : "0.00"}{" "}
+                          m³
                         </span>
                       </div>
                       <button
@@ -729,15 +716,17 @@ export default function LCACalculatorComponent(): JSX.Element {
                       <Select
                         value={
                           material.kbobId
-                            ? {
+                            ? ({
                                 value: material.kbobId,
-                                label: kbobMaterials.find(
-                                  (k) => k.id === material.kbobId
-                                )?.nameDE,
-                              }
+                                label:
+                                  kbobMaterials.find(
+                                    (k) => k.id === material.kbobId
+                                  )?.nameDE || "",
+                                isDisabled: false,
+                              } as MaterialOption)
                             : null
                         }
-                        onChange={(newValue) =>
+                        onChange={(newValue: SingleValue<MaterialOption>) =>
                           handleMaterialSelect(newValue, material.id)
                         }
                         options={kbobMaterialOptions}

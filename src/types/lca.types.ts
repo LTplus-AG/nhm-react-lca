@@ -54,7 +54,11 @@ export interface MaterialCSVImport {
   isUnmodelled?: boolean;
 }
 
-export interface UnmodelledMaterial extends Material {
+export interface UnmodelledMaterial {
+  id: string;
+  name: string;
+  volume: number | "";
+  ebkp: string;
   kbobId: string;
 }
 
