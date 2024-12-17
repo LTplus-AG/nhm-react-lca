@@ -267,53 +267,43 @@ export default function LCACalculatorComponent(): JSX.Element {
     return `${kbob.nameDE} (${densityText})`;
   }, []);
 
-  const handleExportCSV = useCallback(() => {
-    const escapeCSV = (field: string) => {
-      if (!field) return "";
-      const stringField = String(field);
-      if (stringField.match(/[",\n\r]/)) {
-        return `"${stringField.replace(/"/g, '""')}"`;
-      }
-      return stringField;
-    };
-
-    const header =
-      ["IFC Material", "KBOB Material", "KBOB ID", "Type", "isModelled"].join(
-        ","
-      ) + "\n";
-
-    const modelledRows = modelledMaterials.map((material) => {
+  const handleExportJSON = useCallback(() => {
+    const modelledData = modelledMaterials.map((material) => {
       const kbobMaterial = getKbobMaterial(material.id);
-      return [
-        escapeCSV(material.name),
-        escapeCSV(kbobMaterial?.nameDE || ""),
-        escapeCSV(matches[material.id] || ""),
-        "modelled",
-        "true",
-      ].join(",");
+      return {
+        ifc_material: material.name,
+        kbob_material: kbobMaterial?.nameDE || "",
+        kbob_id: matches[material.id] || "",
+        type: "modelled",
+        is_modelled: true,
+        ebkp: "", // Empty for modelled materials as requested
+        quantity: material.volume,
+      };
     });
 
-    const unmodelledRows = unmodelledMaterials.map((material) => {
+    const unmodelledData = unmodelledMaterials.map((material) => {
       const kbobMaterial = kbobMaterials.find((k) => k.id === material.kbobId);
-      return [
-        escapeCSV(material.name),
-        escapeCSV(kbobMaterial?.nameDE || ""),
-        escapeCSV(material.kbobId),
-        "unmodelled",
-        "false",
-      ].join(",");
+      return {
+        ifc_material: material.name,
+        kbob_material: kbobMaterial?.nameDE || "",
+        kbob_id: material.kbobId || "",
+        type: "unmodelled",
+        is_modelled: false,
+        ebkp: material.ebkp || "",
+        quantity: material.volume,
+      };
     });
 
-    const csvContent = header + [...modelledRows, ...unmodelledRows].join("\n");
+    const jsonData = [...modelledData, ...unmodelledData];
 
-    const blob = new Blob([new Uint8Array([0xef, 0xbb, 0xbf]), csvContent], {
-      type: "text/csv;charset=utf-8",
+    const blob = new Blob([JSON.stringify(jsonData, null, 2)], {
+      type: "application/json",
     });
 
     const timestamp = new Date().toISOString().replace(/[-:]/g, "").split("T");
     const date = timestamp[0];
     const time = timestamp[1].split(".")[0].replace(/:/g, "");
-    const filename = `juch_p31_${date}_${time}.csv`;
+    const filename = `juch_p31_${date}_${time}.json`;
 
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -448,49 +438,45 @@ export default function LCACalculatorComponent(): JSX.Element {
             <div>
               <h3 className="font-semibold mb-2 text-foreground">Aktionen</h3>
               <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <div className="flex gap-4 items-center">
-                    <button
-                      onClick={handleUploadClick}
-                      className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md flex items-center gap-2"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                      </svg>
-                      JSON hochladen
-                    </button>
-                    {uploadProgress > 0 && uploadProgress < 100 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-24 bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary transition-all duration-300"
-                            style={{ width: `${uploadProgress}%` }}
-                          />
-                        </div>
-                        <span className="text-sm text-muted-foreground">
-                          {uploadProgress.toFixed(0)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
                 <button
-                  onClick={handleExportCSV}
+                  onClick={handleUploadClick}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md flex items-center justify-center gap-2"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  JSON hochladen
+                </button>
+                {uploadProgress > 0 && uploadProgress < 100 && (
+                  <div className="w-full flex items-center gap-2">
+                    <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {uploadProgress.toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+                <button
+                  onClick={handleExportJSON}
                   className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
                 >
-                  Export CSV
+                  Export JSON
                 </button>
               </div>
             </div>
@@ -708,6 +694,11 @@ export default function LCACalculatorComponent(): JSX.Element {
                           <span className="text-xs bg-yellow-200/10 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded">
                             Nicht modelliert
                           </span>
+                          {material.ebkp && (
+                            <span className="text-xs bg-blue-200/10 text-blue-600 dark:text-blue-400 px-2 py-1 rounded">
+                              {material.ebkp}
+                            </span>
+                          )}
                         </h3>
                         <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
                           {material.volume.toFixed(2)} m³
