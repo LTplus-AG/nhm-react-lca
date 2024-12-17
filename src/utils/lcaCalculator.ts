@@ -95,7 +95,7 @@ export class LCACalculator {
       case OutputFormats.UBP:
         return " UBP";
       case OutputFormats.PENR:
-        return " MJ";
+        return " kWh";
       default:
         return "";
     }
