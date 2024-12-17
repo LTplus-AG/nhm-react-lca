@@ -16,15 +16,11 @@ import {
   KbobMaterial,
   NewMaterial,
   ImpactResults,
-  MaterialCSVImport,
+  OutputFormatUnits,
 } from "../types/lca.types.ts";
 import { LCACalculator } from "../utils/lcaCalculator";
 import { fetchKBOBMaterials } from "../services/kbobService";
 import Select, { SingleValue } from "react-select";
-import {
-  IFCTransformService,
-  MaterialCSVRow,
-} from "../services/ifcTransformService";
 import { JsonTransformService } from "../services/jsonTransformService";
 
 const calculator = new LCACalculator();
@@ -415,7 +411,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                   unmodelledMaterials
                 )}
                 <span className="text-lg ml-2 font-normal text-muted-foreground">
-                  {OutputFormatLabels[outputFormat]}
+                  {OutputFormatUnits[outputFormat]}
                 </span>
               </p>
             </div>

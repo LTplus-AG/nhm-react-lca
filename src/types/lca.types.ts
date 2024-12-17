@@ -6,6 +6,13 @@ export enum OutputFormats {
 }
 
 export const OutputFormatLabels: Record<OutputFormats, string> = {
+  [OutputFormats.GWP]: "Treibhausgasemissionen (kg CO₂-eq)",
+  [OutputFormats.UBP]: "Umweltbelastungspunkte (UBP)",
+  [OutputFormats.PENR]: "Primärenergie nicht erneuerbar (kWh)",
+};
+
+// Separate labels for units only
+export const OutputFormatUnits: Record<OutputFormats, string> = {
   [OutputFormats.GWP]: "kg CO₂-eq",
   [OutputFormats.UBP]: "UBP",
   [OutputFormats.PENR]: "kWh",
