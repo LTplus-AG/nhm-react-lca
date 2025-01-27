@@ -20,6 +20,7 @@ import {
   UnmodelledMaterials,
 } from "../types/lca.types.ts";
 import { LCACalculator } from "../utils/lcaCalculator";
+import { FileDown } from "lucide-react";
 
 const calculator = new LCACalculator();
 
@@ -272,8 +273,8 @@ export default function LCACalculatorComponent(): JSX.Element {
               <h3 className="font-semibold mb-2 text-foreground">
                 Gesamtergebnis
               </h3>
-              <div className="bg-secondary/50 p-4 rounded-md">
-                <p className="text-3xl font-bold text-foreground">
+              <div className="bg-gradient-to-tr from-[#F1D900] to-[#fff176] p-4 rounded-md">
+                <p className="text-3xl font-bold text-black">
                   {calculator.calculateGrandTotal(
                     modelledMaterials,
                     matches,
@@ -281,7 +282,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                     outputFormat,
                     unmodelledMaterials
                   )}
-                  <span className="text-lg ml-2 font-normal text-muted-foreground">
+                  <span className="text-lg ml-2 font-normal text-black/70">
                     {OutputFormatUnits[outputFormat]}
                   </span>
                 </p>
@@ -436,9 +437,10 @@ export default function LCACalculatorComponent(): JSX.Element {
                     <button
                       onClick={handleExportJSON}
                       disabled={Object.keys(matches).length === 0}
-                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-md transition-colors"
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-md flex items-center justify-center gap-2"
                     >
-                      Export JSON
+                      <FileDown className="h-5 w-5" />
+                      JSON download
                     </button>
                   </div>
                 </div>
@@ -465,32 +467,26 @@ export default function LCACalculatorComponent(): JSX.Element {
             </div>
           </div>
 
-          <div className="flex space-x-1 mb-6 border-b border-border">
+          <div className="flex w-full mb-6 bg-white border border-border p-1 rounded-lg gap-1">
             <button
               onClick={() => setActiveTab("modelled")}
-              className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+              className={`flex-1 py-3 px-6 text-sm font-medium transition-all rounded-md ${
                 activeTab === "modelled"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-gradient-to-tr from-[#93B1E4] to-[#c5d8f5] text-black shadow-sm"
+                  : "bg-white text-gray-600 hover:bg-gradient-to-tr hover:from-[#F1D900] hover:to-[#fff176] hover:text-black"
               }`}
             >
               Modellierte Materialien
-              {activeTab === "modelled" && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-              )}
             </button>
             <button
               onClick={() => setActiveTab("unmodelled")}
-              className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+              className={`flex-1 py-3 px-6 text-sm font-medium transition-all rounded-md ${
                 activeTab === "unmodelled"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-gradient-to-tr from-[#93B1E4] to-[#c5d8f5] text-black shadow-sm"
+                  : "bg-white text-gray-600 hover:bg-gradient-to-tr hover:from-[#F1D900] hover:to-[#fff176] hover:text-black"
               }`}
             >
               Nicht modellierte Materialien
-              {activeTab === "unmodelled" && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-              )}
             </button>
           </div>
 
