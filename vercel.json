@@ -4,5 +4,14 @@
       "source": "/api/kbob",
       "destination": "/api/kbob.js"
     }
+  ],
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/"
+    }
   ]
 }

@@ -21,6 +21,16 @@ import {
 } from "../types/lca.types.ts";
 import { LCACalculator } from "../utils/lcaCalculator";
 import { FileDown } from "lucide-react";
+import ReactDOM from "react-dom";
+import { UploadFile, FileDownload } from "@mui/icons-material";
+import {
+  CircularProgress,
+  IconButton,
+  Typography,
+  Stepper,
+  Step,
+  StepLabel,
+} from "@mui/material";
 
 const calculator = new LCACalculator();
 
@@ -57,6 +67,9 @@ export default function LCACalculatorComponent(): JSX.Element {
   );
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [sortBy, setSortBy] = useState<SortOption>("volume");
+  const [sidebarContainer, setSidebarContainer] = useState<HTMLElement | null>(
+    null
+  );
 
   useEffect(() => {
     const loadKBOBMaterials = async () => {
@@ -64,6 +77,16 @@ export default function LCACalculatorComponent(): JSX.Element {
       setKbobMaterials(materials);
     };
     loadKBOBMaterials();
+  }, []);
+
+  useEffect(() => {
+    let container = document.getElementById("sidebar");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "sidebar";
+      document.body.appendChild(container);
+    }
+    setSidebarContainer(container);
   }, []);
 
   const handleMatch = useCallback((modelId: string, kbobId?: string): void => {
@@ -237,218 +260,185 @@ export default function LCACalculatorComponent(): JSX.Element {
     });
   };
 
-  return (
-    <div className="w-full h-full">
-      <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] gap-6">
-        <div className="bg-card rounded-lg shadow p-6 h-fit">
-          <h2 className="text-xl font-bold mb-4 text-foreground">
-            Projektübersicht
-          </h2>
-          <div className="space-y-6">
-            <div>
-              <h3 className="font-semibold mb-2 text-foreground">Juch-Areal</h3>
-              <p className="text-muted-foreground">Phase: 31 Vorprojekt</p>
-            </div>
+  // Add instructions array
+  const instructions = [
+    {
+      label: "Daten importieren",
+      description: "Laden Sie die JSON-Datei mit den Materialdaten hoch.",
+    },
+    {
+      label: "Materialien zuordnen",
+      description: "Ordnen Sie die Materialien den KBOB-Referenzen zu.",
+    },
+    {
+      label: "Ergebnis exportieren",
+      description: "Exportieren Sie die zugeordneten Materialien als JSON.",
+    },
+  ];
 
-            <div>
-              <h3 className="font-semibold mb-2 text-foreground">
-                Ausgabeformat
-              </h3>
-              <select
-                value={outputFormat}
-                onChange={(e) =>
-                  setOutputFormat(e.target.value as OutputFormats)
-                }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                {Object.entries(OutputFormatLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
+  // Calculate current step
+  const getCurrentStep = () => {
+    if (modelledMaterials.length === 0) return 0;
+    if (
+      modelledMaterials.filter((m) => matches[m.id]).length <
+      modelledMaterials.length
+    )
+      return 1;
+    return 2;
+  };
 
-            <div>
-              <h3 className="font-semibold mb-2 text-foreground">
-                Gesamtergebnis
-              </h3>
-              <div className="bg-gradient-to-tr from-[#F1D900] to-[#fff176] p-4 rounded-md">
-                <p className="text-3xl font-bold text-black">
-                  {calculator.calculateGrandTotal(
-                    modelledMaterials,
-                    matches,
-                    kbobMaterials,
-                    outputFormat,
-                    unmodelledMaterials
-                  )}
-                  <span className="text-lg ml-2 font-normal text-black/70">
-                    {OutputFormatUnits[outputFormat]}
-                  </span>
-                </p>
+  const sidebarContent = (
+    <div className="bg-card rounded-lg shadow p-6 h-fit">
+      <div className="space-y-6">
+        {/* File Operations Section */}
+        <div>
+          <h3 className="font-semibold mb-2 text-foreground">
+            Dateioperationen
+          </h3>
+          <div className="flex gap-2">
+            <IconButton
+              onClick={handleExportJSON}
+              className="flex-1 bg-primary/10 hover:bg-primary/20"
+              size="large"
+              disabled={getCurrentStep() < 2}
+            >
+              <div className="flex flex-col items-center">
+                <FileDownload className="text-primary" />
+                <Typography variant="caption" className="text-primary text-xs">
+                  Export
+                </Typography>
+              </div>
+            </IconButton>
+            <IconButton
+              onClick={handleUploadClick}
+              className="flex-1 bg-secondary/10 hover:bg-secondary/20"
+              size="large"
+            >
+              <div className="flex flex-col items-center">
+                <UploadFile className="text-secondary" />
+                <Typography
+                  variant="caption"
+                  className="text-secondary text-xs"
+                >
+                  Import
+                </Typography>
+              </div>
+            </IconButton>
+          </div>
+          {uploadProgress > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center gap-2">
+                <CircularProgress
+                  size={16}
+                  variant="determinate"
+                  value={uploadProgress}
+                />
+                <Typography variant="caption" className="text-muted-foreground">
+                  {uploadProgress}% hochgeladen
+                </Typography>
               </div>
             </div>
+          )}
+        </div>
 
-            <div>
-              <h3 className="font-semibold mb-2 text-foreground">Statistik</h3>
-              <p className="text-sm text-muted-foreground">
-                Modellierte Materialien: {modelledMaterials.length}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Nicht modellierte Materialien: {unmodelledMaterials.length}
-              </p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold mb-4 text-foreground">Prozess</h3>
-              <div className="space-y-4">
-                {/* Step 1 */}
-                <div className="relative">
-                  <div className="flex items-center gap-2">
-                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-medium">
-                      1
-                    </span>
-                    <h4 className="font-medium">Daten importieren</h4>
-                  </div>
-                  <div className="mt-2 pl-8">
-                    <button
-                      onClick={handleUploadClick}
-                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md flex items-center justify-center gap-2"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                      </svg>
-                      JSON hochladen
-                    </button>
-                    {uploadProgress > 0 && uploadProgress < 100 && (
-                      <div className="w-full flex items-center gap-2 mt-2">
-                        <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary transition-all duration-300"
-                            style={{ width: `${uploadProgress}%` }}
-                          />
-                        </div>
-                        <span className="text-sm text-muted-foreground">
-                          {uploadProgress.toFixed(0)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Step 2 */}
-                <div className="relative">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium ${
-                        modelledMaterials.length > 0
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      2
-                    </span>
-                    <h4
-                      className={`font-medium ${
-                        modelledMaterials.length === 0
-                          ? "text-muted-foreground"
-                          : ""
-                      }`}
-                    >
-                      Materialien zuordnen
-                    </h4>
-                  </div>
-                  <div className="mt-2 pl-8">
-                    {modelledMaterials.length > 0 ? (
-                      <>
-                        <div className="w-full flex items-center gap-2 mb-2">
-                          <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary transition-all duration-300"
-                              style={{
-                                width: `${
-                                  (modelledMaterials.filter(
-                                    (m) => matches[m.id]
-                                  ).length /
-                                    modelledMaterials.length) *
-                                  100
-                                }%`,
-                              }}
-                            />
-                          </div>
-                          <span className="text-sm text-muted-foreground whitespace-nowrap">
-                            {
-                              modelledMaterials.filter((m) => matches[m.id])
-                                .length
-                            }{" "}
-                            von {modelledMaterials.length}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {modelledMaterials.filter((m) => matches[m.id])
-                            .length === modelledMaterials.length
-                            ? "Alle Materialien zugeordnet"
-                            : "Bitte ordnen Sie die restlichen Materialien zu"}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground mb-2">
-                        Bitte zuerst Daten importieren
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Step 3 */}
-                <div className="relative">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium ${
-                        Object.keys(matches).length > 0
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      3
-                    </span>
-                    <h4
-                      className={`font-medium ${
-                        Object.keys(matches).length === 0
-                          ? "text-muted-foreground"
-                          : ""
-                      }`}
-                    >
-                      Ergebnis exportieren
-                    </h4>
-                  </div>
-                  <div className="mt-2 pl-8">
-                    <button
-                      onClick={handleExportJSON}
-                      disabled={Object.keys(matches).length === 0}
-                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-md flex items-center justify-center gap-2"
-                    >
-                      <FileDown className="h-5 w-5" />
-                      JSON download
-                    </button>
-                  </div>
+        {/* Progress Indicators */}
+        {modelledMaterials.length > 0 && (
+          <div>
+            <h3 className="font-semibold mb-2 text-foreground">Fortschritt</h3>
+            <div className="space-y-2">
+              <div>
+                <Typography variant="caption" color="textSecondary">
+                  Modellierte Materialien: {modelledMaterials.length}
+                </Typography>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-primary rounded-full h-2 transition-all"
+                    style={{
+                      width: `${
+                        (modelledMaterials.filter((m) => matches[m.id]).length /
+                          modelledMaterials.length) *
+                        100
+                      }%`,
+                    }}
+                  />
                 </div>
               </div>
+              <Typography variant="caption" color="textSecondary">
+                {modelledMaterials.filter((m) => matches[m.id]).length} von{" "}
+                {modelledMaterials.length} zugeordnet
+              </Typography>
             </div>
+          </div>
+        )}
+
+        <div>
+          <h3 className="font-semibold mb-2 text-foreground">Ausgabeformat</h3>
+          <select
+            value={outputFormat}
+            onChange={(e) => setOutputFormat(e.target.value as OutputFormats)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            {Object.entries(OutputFormatLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <h3 className="font-semibold mb-2 text-foreground">Gesamtergebnis</h3>
+          <div className="bg-gradient-to-tr from-[#F1D900] to-[#fff176] p-4 rounded-md">
+            <p className="text-3xl font-bold text-black">
+              {calculator.calculateGrandTotal(
+                modelledMaterials,
+                matches,
+                kbobMaterials,
+                outputFormat,
+                unmodelledMaterials
+              )}
+              <span className="text-lg ml-2 font-normal text-black/70">
+                {OutputFormatUnits[outputFormat]}
+              </span>
+            </p>
           </div>
         </div>
 
+        {/* Process Steps */}
+        <div>
+          <h3 className="font-semibold mb-4 text-foreground">Prozess</h3>
+          <Stepper
+            orientation="vertical"
+            activeStep={getCurrentStep()}
+            className="max-w-xs"
+          >
+            {instructions.map((step, index) => (
+              <Step key={step.label} completed={getCurrentStep() > index}>
+                <StepLabel>
+                  <Typography variant="subtitle2" className="font-semibold">
+                    {step.label}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    color="textSecondary"
+                    className="block mt-1"
+                  >
+                    {step.description}
+                  </Typography>
+                </StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="w-full h-full">
+      {sidebarContainer &&
+        ReactDOM.createPortal(sidebarContent, sidebarContainer)}
+      <div className="grid grid-cols-1 gap-6">
         <div className="bg-card rounded-lg shadow p-6 w-full">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-foreground">Materialien</h2>

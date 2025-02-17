@@ -1,43 +1,49 @@
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import LCACalculator from "./components/LCACalculator.tsx";
 import { useEffect } from "react";
+import { Box, Container } from "@mui/material";
+import { ThemeProvider } from "@mui/material/styles";
+import theme from "./theme";
 
 function App(): JSX.Element {
   useEffect(() => {
-    // Remove dark mode functionality as the site should always be light
     document.documentElement.classList.remove("dark");
   }, []);
 
   return (
-    <Router>
-      <div className="min-h-screen bg-background w-full">
-        <header className="bg-primary w-full h-2" />
-        <nav className="bg-white w-full border-b border-border">
-          <div className="container mx-auto px-4">
-            <div className="flex justify-between h-16">
-              <div className="flex items-center space-x-8">
-                <Link to="/" className="flex items-center">
-                  <img
-                    src="/logo.png"
-                    alt="Stadt Zürich"
-                    className="h-12 w-auto"
-                  />
-                </Link>
-                <span className="text-xl font-semibold text-foreground">
-                  NHMzh Oberfläche "Fachplaner Ökobilanzierung"
-                </span>
-              </div>
-            </div>
-          </div>
-        </nav>
-
-        <main className="container mx-auto p-4">
-          <Routes>
-            <Route path="/" element={<LCACalculator />} />
-          </Routes>
-        </main>
-      </div>
-    </Router>
+    <ThemeProvider theme={theme}>
+      <Box
+        sx={{
+          minHeight: "100vh",
+          backgroundColor: "background.default",
+          width: "100%",
+        }}
+      >
+        <Box sx={{ py: 2 }}>
+          <Box sx={{ display: "flex", minHeight: "80vh" }}>
+            <Box
+              component="aside"
+              sx={{
+                minWidth: "fit-content",
+                maxWidth: "240px",
+                flexShrink: 0,
+                borderRight: 1,
+                borderColor: "divider",
+                p: 2,
+              }}
+            >
+              {/* Sidebar container for LCACalculator */}
+              <div id="sidebar"></div>
+            </Box>
+            <Box component="main" sx={{ flexGrow: 1, p: 2 }}>
+              <Routes>
+                <Route path="/" element={<LCACalculator />} />
+              </Routes>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </ThemeProvider>
   );
 }
 
