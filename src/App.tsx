@@ -16,8 +16,8 @@ function App(): JSX.Element {
         width: "100%",
       }}
     >
-      <Box sx={{ py: 2 }}>
-        <Grid container>
+      <Box sx={{ py: 2, height: "100vh", overflow: "hidden" }}>
+        <Grid container sx={{ height: "100%" }}>
           {/* Sidebar */}
           <Grid
             item
@@ -28,13 +28,26 @@ function App(): JSX.Element {
               borderRight: 1,
               borderColor: "divider",
               p: 2,
+              height: "100%",
+              position: "sticky",
+              top: 0,
             }}
           >
             <div id="sidebar"></div>
           </Grid>
 
           {/* Main Content */}
-          <Grid item xs={12} md={9} lg={9.5} sx={{ p: 2 }}>
+          <Grid 
+            item 
+            xs={12} 
+            md={9} 
+            lg={9.5} 
+            sx={{ 
+              p: 2,
+              height: "100%",
+              overflowY: "auto",
+            }}
+          >
             <Routes>
               <Route path="/" element={<LCACalculator />} />
             </Routes>
