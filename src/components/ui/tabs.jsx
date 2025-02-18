@@ -1,41 +1,76 @@
-import * as React from "react"
-import * as TabsPrimitive from "@radix-ui/react-tabs"
+import * as React from "react";
+import { styled } from "@mui/material/styles";
+import { Tabs as MuiTabs, Tab as MuiTab, Box } from "@mui/material";
 
-import { cn } from "../../lib/utils"
+const StyledTabs = styled(MuiTabs)(({ theme }) => ({
+  minHeight: 40,
+  backgroundColor: theme.palette.action.selected,
+  borderRadius: theme.shape.borderRadius,
+  padding: theme.spacing(0.5),
+  "& .MuiTabs-indicator": {
+    display: "none",
+  },
+}));
 
-const Tabs = TabsPrimitive.Root
+const StyledTab = styled(MuiTab)(({ theme }) => ({
+  minHeight: 32,
+  padding: theme.spacing(0.75, 1.5),
+  borderRadius: theme.shape.borderRadius,
+  fontSize: theme.typography.body2.fontSize,
+  fontWeight: theme.typography.fontWeightMedium,
+  textTransform: "none",
+  color: theme.palette.text.secondary,
+  "&.Mui-selected": {
+    color: theme.palette.text.primary,
+    backgroundColor: theme.palette.background.paper,
+    boxShadow: theme.shadows[1],
+  },
+  "&:hover": {
+    backgroundColor: theme.palette.action.hover,
+  },
+  "&.Mui-disabled": {
+    opacity: 0.5,
+    pointerEvents: "none",
+  },
+}));
 
-const TabsList = React.forwardRef(({ className, ...props }, ref) => (
-  <TabsPrimitive.List
+const TabPanel = styled(Box)(({ theme }) => ({
+  marginTop: theme.spacing(2),
+  "&:focus": {
+    outline: "none",
+    ring: `2px solid ${theme.palette.primary.main}`,
+    ringOffset: "2px",
+  },
+}));
+
+const Tabs = ({ value, onChange, children, ...props }) => (
+  <StyledTabs value={value} onChange={onChange} {...props}>
+    {children}
+  </StyledTabs>
+);
+
+const TabsList = React.forwardRef(({ children, ...props }, ref) => (
+  <Box ref={ref} {...props}>
+    {children}
+  </Box>
+));
+TabsList.displayName = "TabsList";
+
+const TabsTrigger = React.forwardRef(({ value, children, ...props }, ref) => (
+  <StyledTab ref={ref} value={value} label={children} {...props} />
+));
+TabsTrigger.displayName = "TabsTrigger";
+
+const TabsContent = React.forwardRef(({ value, children, ...props }, ref) => (
+  <TabPanel
     ref={ref}
-    className={cn(
-      "inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
-      className
-    )}
-    {...props} />
-))
-TabsList.displayName = TabsPrimitive.List.displayName
+    role="tabpanel"
+    hidden={value !== props.tabValue}
+    {...props}
+  >
+    {children}
+  </TabPanel>
+));
+TabsContent.displayName = "TabsContent";
 
-const TabsTrigger = React.forwardRef(({ className, ...props }, ref) => (
-  <TabsPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm",
-      className
-    )}
-    {...props} />
-))
-TabsTrigger.displayName = TabsPrimitive.Trigger.displayName
-
-const TabsContent = React.forwardRef(({ className, ...props }, ref) => (
-  <TabsPrimitive.Content
-    ref={ref}
-    className={cn(
-      "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-      className
-    )}
-    {...props} />
-))
-TabsContent.displayName = TabsPrimitive.Content.displayName
-
-export { Tabs, TabsList, TabsTrigger, TabsContent }
+export { Tabs, TabsList, TabsTrigger, TabsContent };

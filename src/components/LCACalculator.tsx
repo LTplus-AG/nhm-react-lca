@@ -1,3 +1,18 @@
+import { FileDownload, UploadFile } from "@mui/icons-material";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Grid,
+  Paper,
+  Step,
+  StepLabel,
+  Stepper,
+  Tab,
+  Tabs,
+  Typography,
+  useTheme,
+} from "@mui/material";
 import React, {
   useCallback,
   useEffect,
@@ -5,6 +20,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import ReactDOM from "react-dom";
 import Select, { SingleValue } from "react-select";
 import { ebkpData } from "../data/ebkpData";
 import { jsonOperations } from "../services/jsonOperations";
@@ -20,17 +36,6 @@ import {
   UnmodelledMaterials,
 } from "../types/lca.types.ts";
 import { LCACalculator } from "../utils/lcaCalculator";
-import { FileDown } from "lucide-react";
-import ReactDOM from "react-dom";
-import { UploadFile, FileDownload } from "@mui/icons-material";
-import {
-  CircularProgress,
-  IconButton,
-  Typography,
-  Stepper,
-  Step,
-  StepLabel,
-} from "@mui/material";
 
 const calculator = new LCACalculator();
 
@@ -44,6 +49,7 @@ interface MaterialOption {
 type SortOption = "volume" | "name";
 
 export default function LCACalculatorComponent(): JSX.Element {
+  const theme = useTheme();
   const [modelledMaterials, setModelledMaterials] = useState<Material[]>(
     DefaultModelledMaterials
   );
@@ -51,9 +57,7 @@ export default function LCACalculatorComponent(): JSX.Element {
     useState<UnmodelledMaterial[]>(UnmodelledMaterials);
   const [kbobMaterials, setKbobMaterials] = useState<KbobMaterial[]>([]);
   const [matches, setMatches] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<"modelled" | "unmodelled">(
-    "modelled"
-  );
+  const [activeTab, setActiveTab] = useState(0);
   const [newUnmodelledMaterial, setNewUnmodelledMaterial] =
     useState<UnmodelledMaterial>({
       id: "",
@@ -162,49 +166,49 @@ export default function LCACalculatorComponent(): JSX.Element {
     () => ({
       control: (provided: any) => ({
         ...provided,
-        borderRadius: "0.375rem",
-        borderColor: "var(--border)",
-        backgroundColor: "hsl(var(--background))",
-        color: "hsl(var(--foreground))",
+        borderRadius: theme.shape.borderRadius,
+        borderColor: theme.palette.divider,
+        backgroundColor: theme.palette.background.paper,
+        color: theme.palette.text.primary,
         boxShadow: "none",
         "&:hover": {
-          borderColor: "hsl(var(--input))",
+          borderColor: theme.palette.primary.main,
         },
       }),
       option: (provided: any, state: any) => ({
         ...provided,
         backgroundColor: state.isSelected
-          ? "hsl(var(--accent))"
-          : "hsl(var(--background))",
+          ? theme.palette.primary.main
+          : theme.palette.background.paper,
         color: state.isDisabled
-          ? "hsl(var(--muted-foreground))"
-          : "hsl(var(--foreground))",
+          ? theme.palette.text.disabled
+          : theme.palette.text.primary,
         cursor: state.isDisabled ? "not-allowed" : "default",
         "&:hover": {
-          backgroundColor: "hsl(var(--accent))",
+          backgroundColor: theme.palette.action.hover,
         },
       }),
       menu: (provided: any) => ({
         ...provided,
-        backgroundColor: "hsl(var(--background))",
-        borderColor: "hsl(var(--border))",
-        borderRadius: "0.375rem",
-        boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+        backgroundColor: theme.palette.background.paper,
+        borderColor: theme.palette.divider,
+        borderRadius: theme.shape.borderRadius,
+        boxShadow: theme.shadows[1],
       }),
       singleValue: (provided: any) => ({
         ...provided,
-        color: "hsl(var(--foreground))",
+        color: theme.palette.text.primary,
       }),
       input: (provided: any) => ({
         ...provided,
-        color: "hsl(var(--foreground))",
+        color: theme.palette.text.primary,
       }),
       placeholder: (provided: any) => ({
         ...provided,
-        color: "hsl(var(--muted-foreground))",
+        color: theme.palette.text.secondary,
       }),
     }),
-    []
+    [theme]
   );
 
   const handleExportJSON = useCallback(() => {
@@ -287,109 +291,187 @@ export default function LCACalculatorComponent(): JSX.Element {
     return 2;
   };
 
+  const outputFormatOptions = useMemo(
+    () =>
+      Object.entries(OutputFormatLabels).map(([value, label]) => ({
+        value,
+        label,
+      })),
+    []
+  );
+
+  const sortOptions = useMemo(
+    () => [
+      { value: "volume", label: "Volumen" },
+      { value: "name", label: "Name" },
+    ],
+    []
+  );
+
   const sidebarContent = (
-    <div className="bg-card rounded-lg shadow p-6 h-fit">
-      <div className="space-y-6">
+    <Paper
+      elevation={1}
+      sx={{
+        p: 2,
+        height: "fit-content",
+        backgroundColor: "background.paper",
+        borderRadius: 1,
+        width: "100%",
+        "& > .MuiBox-root": {
+          width: "100%",
+        },
+      }}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 3,
+          width: "100%",
+        }}
+      >
         {/* File Operations Section */}
-        <div>
-          <h3 className="font-semibold mb-2 text-foreground">
+        <Box sx={{ width: "100%" }}>
+          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
             Dateioperationen
-          </h3>
-          <div className="flex gap-2">
-            <IconButton
+          </Typography>
+          <Box sx={{ display: "flex", gap: 1, width: "100%" }}>
+            <Button
               onClick={handleExportJSON}
-              className="flex-1 bg-primary/10 hover:bg-primary/20"
-              size="large"
+              variant="contained"
+              color="primary"
               disabled={getCurrentStep() < 2}
+              startIcon={<FileDownload />}
+              fullWidth
+              sx={{
+                opacity: 0.9,
+                "&:hover": {
+                  opacity: 1,
+                },
+                "&.Mui-disabled": {
+                  opacity: 0.3,
+                },
+              }}
             >
-              <div className="flex flex-col items-center">
-                <FileDownload className="text-primary" />
-                <Typography variant="caption" className="text-primary text-xs">
-                  Export
-                </Typography>
-              </div>
-            </IconButton>
-            <IconButton
+              Export
+            </Button>
+            <Button
               onClick={handleUploadClick}
-              className="flex-1 bg-secondary/10 hover:bg-secondary/20"
-              size="large"
+              variant="contained"
+              color="secondary"
+              startIcon={<UploadFile />}
+              fullWidth
+              sx={{
+                opacity: 0.9,
+                "&:hover": {
+                  opacity: 1,
+                },
+              }}
             >
-              <div className="flex flex-col items-center">
-                <UploadFile className="text-secondary" />
-                <Typography
-                  variant="caption"
-                  className="text-secondary text-xs"
-                >
-                  Import
-                </Typography>
-              </div>
-            </IconButton>
-          </div>
+              Import
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".json"
+              style={{ display: "none" }}
+            />
+          </Box>
           {uploadProgress > 0 && (
-            <div className="mt-2">
-              <div className="flex items-center gap-2">
+            <Box sx={{ mt: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <CircularProgress
                   size={16}
                   variant="determinate"
                   value={uploadProgress}
                 />
-                <Typography variant="caption" className="text-muted-foreground">
+                <Typography variant="caption" color="text.secondary">
                   {uploadProgress}% hochgeladen
                 </Typography>
-              </div>
-            </div>
+              </Box>
+            </Box>
           )}
-        </div>
+        </Box>
 
-        {/* Progress Indicators */}
+        {/* Progress Section */}
         {modelledMaterials.length > 0 && (
-          <div>
-            <h3 className="font-semibold mb-2 text-foreground">Fortschritt</h3>
-            <div className="space-y-2">
-              <div>
-                <Typography variant="caption" color="textSecondary">
+          <Box>
+            <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+              Fortschritt
+            </Typography>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
                   Modellierte Materialien: {modelledMaterials.length}
                 </Typography>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-primary rounded-full h-2 transition-all"
-                    style={{
+                <Box
+                  sx={{
+                    width: "100%",
+                    bgcolor: "grey.200",
+                    borderRadius: "9999px",
+                    height: "8px",
+                  }}
+                >
+                  <Box
+                    sx={{
                       width: `${
                         (modelledMaterials.filter((m) => matches[m.id]).length /
                           modelledMaterials.length) *
                         100
                       }%`,
+                      bgcolor: "primary.main",
+                      borderRadius: "9999px",
+                      height: "100%",
+                      transition: "width 0.3s",
                     }}
                   />
-                </div>
-              </div>
-              <Typography variant="caption" color="textSecondary">
+                </Box>
+              </Box>
+              <Typography variant="caption" color="text.secondary">
                 {modelledMaterials.filter((m) => matches[m.id]).length} von{" "}
                 {modelledMaterials.length} zugeordnet
               </Typography>
-            </div>
-          </div>
+            </Box>
+          </Box>
         )}
 
-        <div>
-          <h3 className="font-semibold mb-2 text-foreground">Ausgabeformat</h3>
-          <select
-            value={outputFormat}
-            onChange={(e) => setOutputFormat(e.target.value as OutputFormats)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            {Object.entries(OutputFormatLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Output Format Section */}
+        <Box>
+          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+            Ausgabeformat
+          </Typography>
+          <Select
+            value={outputFormatOptions.find(
+              (opt) => opt.value === outputFormat
+            )}
+            onChange={(newValue) =>
+              setOutputFormat(newValue?.value as OutputFormats)
+            }
+            options={outputFormatOptions}
+            styles={selectStyles}
+            className="w-full"
+          />
+        </Box>
 
-        <div>
-          <h3 className="font-semibold mb-2 text-foreground">Gesamtergebnis</h3>
-          <div className="bg-gradient-to-tr from-[#F1D900] to-[#fff176] p-4 rounded-md">
-            <p className="text-3xl font-bold text-black">
+        {/* Total Result Section */}
+        <Box>
+          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+            Gesamtergebnis
+          </Typography>
+          <Box
+            sx={{
+              background: "linear-gradient(to right top, #F1D900, #fff176)",
+              p: 2,
+              borderRadius: 1,
+            }}
+          >
+            <Typography
+              variant="h4"
+              component="p"
+              color="common.black"
+              fontWeight="bold"
+            >
               {calculator.calculateGrandTotal(
                 modelledMaterials,
                 matches,
@@ -397,31 +479,37 @@ export default function LCACalculatorComponent(): JSX.Element {
                 outputFormat,
                 unmodelledMaterials
               )}
-              <span className="text-lg ml-2 font-normal text-black/70">
+              <Typography
+                component="span"
+                variant="h6"
+                sx={{ ml: 1, opacity: 0.7, fontWeight: "normal" }}
+              >
                 {OutputFormatUnits[outputFormat]}
-              </span>
-            </p>
-          </div>
-        </div>
+              </Typography>
+            </Typography>
+          </Box>
+        </Box>
 
-        {/* Process Steps */}
-        <div>
-          <h3 className="font-semibold mb-4 text-foreground">Prozess</h3>
+        {/* Process Steps Section */}
+        <Box>
+          <Typography variant="subtitle1" fontWeight="600" gutterBottom>
+            Prozess
+          </Typography>
           <Stepper
             orientation="vertical"
             activeStep={getCurrentStep()}
-            className="max-w-xs"
+            sx={{ maxWidth: "320px" }}
           >
             {instructions.map((step, index) => (
               <Step key={step.label} completed={getCurrentStep() > index}>
                 <StepLabel>
-                  <Typography variant="subtitle2" className="font-semibold">
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                     {step.label}
                   </Typography>
                   <Typography
                     variant="caption"
-                    color="textSecondary"
-                    className="block mt-1"
+                    color="text.secondary"
+                    sx={{ display: "block", mt: 0.5 }}
                   >
                     {step.description}
                   </Typography>
@@ -429,118 +517,183 @@ export default function LCACalculatorComponent(): JSX.Element {
               </Step>
             ))}
           </Stepper>
-        </div>
-      </div>
-    </div>
+        </Box>
+      </Box>
+    </Paper>
   );
 
+  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
+
   return (
-    <div className="w-full h-full">
+    <Box sx={{ width: "100%", height: "100%" }}>
       {sidebarContainer &&
         ReactDOM.createPortal(sidebarContent, sidebarContainer)}
-      <div className="grid grid-cols-1 gap-6">
-        <div className="bg-card rounded-lg shadow p-6 w-full">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-foreground">Materialien</h2>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">
+      <Box
+        sx={{ display: "flex", flexDirection: "column", gap: 3, width: "100%" }}
+      >
+        <Paper elevation={1} sx={{ p: 3, width: "100%" }}>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              mb: 3,
+            }}
+          >
+            <Typography variant="h5" fontWeight="bold">
+              Materialien
+            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
                 Sortieren nach:
-              </label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="rounded-md border border-input bg-background px-2 py-1 text-sm"
-              >
-                <option value="volume">Volumen</option>
-                <option value="name">Name</option>
-              </select>
-            </div>
-          </div>
+              </Typography>
+              <Select
+                value={sortOptions.find((opt) => opt.value === sortBy)}
+                onChange={(newValue) =>
+                  setSortBy(newValue?.value as SortOption)
+                }
+                options={sortOptions}
+                styles={selectStyles}
+                className="w-40"
+              />
+            </Box>
+          </Box>
 
-          <div className="flex w-full mb-6 bg-white border border-border p-1 rounded-lg gap-1">
-            <button
-              onClick={() => setActiveTab("modelled")}
-              className={`flex-1 py-3 px-6 text-sm font-medium transition-all rounded-md ${
-                activeTab === "modelled"
-                  ? "bg-gradient-to-tr from-[#93B1E4] to-[#c5d8f5] text-black shadow-sm"
-                  : "bg-white text-gray-600 hover:bg-gradient-to-tr hover:from-[#F1D900] hover:to-[#fff176] hover:text-black"
-              }`}
+          <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
+            <Tabs
+              value={activeTab}
+              onChange={handleTabChange}
+              sx={{
+                "& .MuiTab-root": {
+                  textTransform: "none",
+                  fontSize: "0.875rem",
+                  fontWeight: 500,
+                  color: "text.secondary",
+                  "&.Mui-selected": {
+                    color: "primary.main",
+                  },
+                },
+                "& .MuiTabs-indicator": {
+                  backgroundColor: "primary.main",
+                },
+              }}
             >
-              Modellierte Materialien
-            </button>
-            <button
-              onClick={() => setActiveTab("unmodelled")}
-              className={`flex-1 py-3 px-6 text-sm font-medium transition-all rounded-md ${
-                activeTab === "unmodelled"
-                  ? "bg-gradient-to-tr from-[#93B1E4] to-[#c5d8f5] text-black shadow-sm"
-                  : "bg-white text-gray-600 hover:bg-gradient-to-tr hover:from-[#F1D900] hover:to-[#fff176] hover:text-black"
-              }`}
-            >
-              Nicht modellierte Materialien
-            </button>
-          </div>
+              <Tab label="Modellierte Materialien" />
+              <Tab label="Nicht modellierte Materialien" />
+            </Tabs>
+          </Box>
 
-          {activeTab === "modelled" ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full">
+          {activeTab === 0 ? (
+            <Grid container spacing={2}>
               {sortMaterials(modelledMaterials).map((material, index) => (
-                <div
-                  key={index}
-                  className="bg-card border border-border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow w-full"
-                >
-                  <div className="flex justify-between items-center w-full mb-4">
-                    <div className="flex items-center gap-4 flex-1">
-                      <h3 className="font-medium text-foreground">
-                        {material.name}
-                      </h3>
-                      <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
-                        {typeof material.volume === "number"
-                          ? material.volume.toFixed(2)
-                          : "0.00"}{" "}
-                        m³
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-full">
+                <Grid item xs={12} lg={6} key={index}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      border: 1,
+                      borderColor: "divider",
+                      borderRadius: 1,
+                      "&:hover": {
+                        boxShadow: 2,
+                      },
+                      transition: "box-shadow 0.3s",
+                    }}
+                  >
+                    {/* Material content */}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 2,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          flex: 1,
+                        }}
+                      >
+                        <Typography variant="body1" fontWeight="500">
+                          {material.name}
+                        </Typography>
+                        <Box
+                          sx={{
+                            bgcolor: "secondary.main",
+                            opacity: 0.5,
+                            px: 1,
+                            py: 0.5,
+                            borderRadius: 1,
+                          }}
+                        >
+                          <Typography variant="body2">
+                            {typeof material.volume === "number"
+                              ? material.volume.toFixed(2)
+                              : "0.00"}{" "}
+                            m³
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Box>
                     <Select
                       value={
                         matches[material.id]
-                          ? ({
+                          ? {
                               value: matches[material.id],
                               label:
                                 kbobMaterials.find(
                                   (k) => k.id === matches[material.id]
                                 )?.nameDE || "",
                               isDisabled: false,
-                            } as MaterialOption)
+                            }
                           : null
                       }
-                      onChange={(newValue: SingleValue<MaterialOption>) =>
+                      onChange={(newValue) =>
                         handleMaterialSelect(newValue, material.id)
                       }
                       options={kbobMaterialOptions}
                       styles={selectStyles}
                       className="w-full"
                     />
-                  </div>
-                </div>
+                  </Paper>
+                </Grid>
               ))}
-            </div>
+            </Grid>
           ) : (
             <>
-              <div className="mb-6 bg-card border border-border rounded-lg p-4">
-                <h3 className="text-lg font-medium mb-4">
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 3,
+                  mb: 3,
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 1,
+                }}
+              >
+                <Typography variant="h6" sx={{ mb: 2 }}>
                   Neues Material hinzufügen
-                </h3>
-                <form
+                </Typography>
+                <Box
+                  component="form"
                   onSubmit={handleAddUnmodelledMaterial}
-                  className="space-y-4"
+                  sx={{ width: "100%" }}
                 >
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    <Grid item xs={12} md={6}>
+                      <Typography
+                        variant="body2"
+                        sx={{ mb: 1, fontWeight: 500 }}
+                      >
                         Name
-                      </label>
-                      <input
+                      </Typography>
+                      <Box
+                        component="input"
                         type="text"
                         value={newUnmodelledMaterial.name}
                         onChange={(e) =>
@@ -549,14 +702,32 @@ export default function LCACalculatorComponent(): JSX.Element {
                             name: e.target.value,
                           })
                         }
-                        className="w-full rounded-md border border-border bg-background px-3 py-2"
+                        sx={{
+                          width: "100%",
+                          p: 1.5,
+                          border: 1,
+                          borderColor: "divider",
+                          borderRadius: 1,
+                          bgcolor: "background.paper",
+                          "&:hover": {
+                            borderColor: "primary.main",
+                          },
+                          "&:focus": {
+                            outline: "none",
+                            borderColor: "primary.main",
+                            boxShadow: 1,
+                          },
+                        }}
                         required
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography
+                        variant="body2"
+                        sx={{ mb: 1, fontWeight: 500 }}
+                      >
                         EBKP
-                      </label>
+                      </Typography>
                       <Select
                         value={
                           newUnmodelledMaterial.ebkp
@@ -582,16 +753,19 @@ export default function LCACalculatorComponent(): JSX.Element {
                           label: `${item.code} - ${item.bezeichnung}`,
                         }))}
                         styles={selectStyles}
-                        className="w-full"
                         placeholder="Wählen Sie einen EBKP-Code"
                         isClearable
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography
+                        variant="body2"
+                        sx={{ mb: 1, fontWeight: 500 }}
+                      >
                         Volumen (m³)
-                      </label>
-                      <input
+                      </Typography>
+                      <Box
+                        component="input"
                         type="number"
                         step="0.01"
                         value={
@@ -608,14 +782,32 @@ export default function LCACalculatorComponent(): JSX.Element {
                                 : parseFloat(e.target.value),
                           })
                         }
-                        className="w-full rounded-md border border-border bg-background px-3 py-2"
+                        sx={{
+                          width: "100%",
+                          p: 1.5,
+                          border: 1,
+                          borderColor: "divider",
+                          borderRadius: 1,
+                          bgcolor: "background.paper",
+                          "&:hover": {
+                            borderColor: "primary.main",
+                          },
+                          "&:focus": {
+                            outline: "none",
+                            borderColor: "primary.main",
+                            boxShadow: 1,
+                          },
+                        }}
                         required
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography
+                        variant="body2"
+                        sx={{ mb: 1, fontWeight: 500 }}
+                      >
                         KBOB Material
-                      </label>
+                      </Typography>
                       <Select
                         value={
                           newUnmodelledMaterial.kbobId
@@ -637,68 +829,121 @@ export default function LCACalculatorComponent(): JSX.Element {
                         }
                         options={kbobMaterialOptions}
                         styles={selectStyles}
-                        className="w-full"
                       />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
-                    >
+                    </Grid>
+                  </Grid>
+                  <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                    <Button type="submit" variant="contained" color="primary">
                       Hinzufügen
-                    </button>
-                  </div>
-                </form>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full">
+                    </Button>
+                  </Box>
+                </Box>
+              </Paper>
+              <Grid container spacing={2}>
                 {sortMaterials(unmodelledMaterials).map((material, index) => (
-                  <div
-                    key={index}
-                    className="bg-card border border-border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow w-full"
-                  >
-                    <div className="flex justify-between items-center w-full mb-4">
-                      <div className="flex items-center gap-4 flex-1">
-                        <h3 className="font-medium text-foreground flex items-center gap-2">
-                          {material.name}
-                          <span className="text-xs bg-yellow-200/10 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded">
-                            Nicht modelliert
-                          </span>
-                          {material.ebkp && (
-                            <span className="text-xs bg-blue-200/10 text-blue-600 dark:text-blue-400 px-2 py-1 rounded">
-                              {material.ebkp}
-                            </span>
-                          )}
-                        </h3>
-                        <span className="bg-secondary/50 px-2 py-1 rounded text-sm">
-                          {typeof material.volume === "number"
-                            ? material.volume.toFixed(2)
-                            : "0.00"}{" "}
-                          m³
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveUnmodelledMaterial(index)}
-                        className="text-destructive hover:text-destructive/90 transition-colors ml-4"
+                  <Grid item xs={12} lg={6} key={index}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        border: 1,
+                        borderColor: "divider",
+                        borderRadius: 1,
+                        "&:hover": {
+                          boxShadow: 2,
+                        },
+                        transition: "box-shadow 0.3s",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          mb: 2,
+                        }}
                       >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 2,
+                            flex: 1,
+                          }}
                         >
-                          <path d="M3 6h18"></path>
-                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                        </svg>
-                      </button>
-                    </div>
-                    <div className="w-full">
+                          <Typography variant="body1" fontWeight="500">
+                            {material.name}
+                          </Typography>
+                          <Box
+                            sx={{
+                              bgcolor: "warning.light",
+                              px: 1,
+                              py: 0.5,
+                              borderRadius: 1,
+                              opacity: 0.8,
+                            }}
+                          >
+                            <Typography variant="caption" color="warning.dark">
+                              Nicht modelliert
+                            </Typography>
+                          </Box>
+                          {material.ebkp && (
+                            <Box
+                              sx={{
+                                bgcolor: "info.light",
+                                px: 1,
+                                py: 0.5,
+                                borderRadius: 1,
+                                opacity: 0.8,
+                              }}
+                            >
+                              <Typography variant="caption" color="info.dark">
+                                {material.ebkp}
+                              </Typography>
+                            </Box>
+                          )}
+                          <Box
+                            sx={{
+                              bgcolor: "secondary.main",
+                              opacity: 0.5,
+                              px: 1,
+                              py: 0.5,
+                              borderRadius: 1,
+                            }}
+                          >
+                            <Typography variant="body2">
+                              {typeof material.volume === "number"
+                                ? material.volume.toFixed(2)
+                                : "0.00"}{" "}
+                              m³
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Button
+                          onClick={() => handleRemoveUnmodelledMaterial(index)}
+                          variant="text"
+                          color="error"
+                          startIcon={
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="20"
+                              height="20"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M3 6h18"></path>
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                            </svg>
+                          }
+                        >
+                          Löschen
+                        </Button>
+                      </Box>
                       <Select
                         value={
                           material.kbobId
@@ -717,24 +962,15 @@ export default function LCACalculatorComponent(): JSX.Element {
                         }
                         options={kbobMaterialOptions}
                         styles={selectStyles}
-                        className="w-full"
                       />
-                    </div>
-                  </div>
+                    </Paper>
+                  </Grid>
                 ))}
-              </div>
+              </Grid>
             </>
           )}
-        </div>
-      </div>
-
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileUpload}
-        accept=".json"
-        className="hidden"
-      />
-    </div>
+        </Paper>
+      </Box>
+    </Box>
   );
 }

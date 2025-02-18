@@ -1,31 +1,111 @@
 import * as React from "react"
-import { Slot } from "@radix-ui/react-slot"
-import { cn } from "../../lib/utils"
+import { styled } from "@mui/material/styles"
+import Button as MuiButton from "@mui/material/Button"
+import IconButton from "@mui/material/IconButton"
 
-const Button = React.forwardRef(({ className, variant = "default", size = "default", asChild = false, ...props }, ref) => {
-  const Comp = asChild ? Slot : "button"
+const StyledButton = styled(MuiButton, {
+  shouldForwardProp: (prop) => prop !== "size" && prop !== "variant",
+})(({ theme, size, variant }) => ({
+  borderRadius: theme.shape.borderRadius,
+  textTransform: "none",
+  fontWeight: theme.typography.fontWeightMedium,
+  fontSize: theme.typography.body2.fontSize,
+  transition: theme.transitions.create(["background-color", "box-shadow", "border-color"]),
+  "&:focus-visible": {
+    outline: "none",
+    ring: `2px solid ${theme.palette.primary.main}`,
+    ringOffset: "2px",
+  },
+  "&:disabled": {
+    pointerEvents: "none",
+    opacity: 0.5,
+  },
+  ...(variant === "default" && {
+    backgroundColor: theme.palette.primary.main,
+    color: theme.palette.primary.contrastText,
+    "&:hover": {
+      backgroundColor: theme.palette.primary.dark,
+    },
+  }),
+  ...(variant === "destructive" && {
+    backgroundColor: theme.palette.error.main,
+    color: theme.palette.error.contrastText,
+    "&:hover": {
+      backgroundColor: theme.palette.error.dark,
+    },
+  }),
+  ...(variant === "outline" && {
+    backgroundColor: "transparent",
+    border: `1px solid ${theme.palette.divider}`,
+    "&:hover": {
+      backgroundColor: theme.palette.action.hover,
+    },
+  }),
+  ...(variant === "secondary" && {
+    backgroundColor: theme.palette.secondary.main,
+    color: theme.palette.secondary.contrastText,
+    "&:hover": {
+      backgroundColor: theme.palette.secondary.dark,
+    },
+  }),
+  ...(variant === "ghost" && {
+    backgroundColor: "transparent",
+    "&:hover": {
+      backgroundColor: theme.palette.action.hover,
+    },
+  }),
+  ...(size === "default" && {
+    padding: theme.spacing(1, 2),
+    height: 40,
+  }),
+  ...(size === "sm" && {
+    padding: theme.spacing(0.75, 1.5),
+    height: 36,
+  }),
+  ...(size === "lg" && {
+    padding: theme.spacing(1.5, 4),
+    height: 44,
+  }),
+}))
+
+const StyledIconButton = styled(IconButton)(({ theme }) => ({
+  width: 36,
+  height: 36,
+  padding: theme.spacing(1),
+}))
+
+const Button = React.forwardRef(({ 
+  className,
+  variant = "default",
+  size = "default",
+  children,
+  ...props 
+}, ref) => {
+  if (size === "icon") {
+    return (
+      <StyledIconButton
+        ref={ref}
+        className={className}
+        {...props}
+      >
+        {children}
+      </StyledIconButton>
+    )
+  }
+
   return (
-    <Comp
-      className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-        {
-          "bg-primary text-primary-foreground hover:bg-primary/90": variant === "default",
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90": variant === "destructive",
-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground": variant === "outline",
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80": variant === "secondary",
-          "hover:bg-accent hover:text-accent-foreground": variant === "ghost",
-          "h-10 px-4 py-2": size === "default",
-          "h-9 rounded-md px-3": size === "sm",
-          "h-11 rounded-md px-8": size === "lg",
-          "h-9 w-9": size === "icon",
-        },
-        className
-      )}
+    <StyledButton
       ref={ref}
+      className={className}
+      variant={variant === "default" ? "contained" : variant}
+      size={size}
       {...props}
-    />
+    >
+      {children}
+    </StyledButton>
   )
 })
+
 Button.displayName = "Button"
 
 export { Button }

@@ -13,7 +13,7 @@ const theme = createTheme({
     },
     background: {
       default: "#F5F7F9",
-      // paper: '#ffffff',
+      paper: "#ffffff",
     },
     text: {
       primary: "#333333",
@@ -43,6 +43,59 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           textTransform: "none",
+          borderRadius: "0.375rem",
+        },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backgroundColor: "#ffffff",
+          borderRadius: "0.375rem",
+        },
+      },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          textTransform: "none",
+          minHeight: "48px",
+          padding: "12px 16px",
+        },
+      },
+    },
+    MuiSelect: {
+      styleOverrides: {
+        root: {
+          borderRadius: "0.375rem",
+        },
+      },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: {
+          borderRadius: "0.375rem",
+          "&:hover .MuiOutlinedInput-notchedOutline": {
+            borderColor: "#0D0599",
+          },
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          borderRadius: "0.375rem",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)",
+        },
+      },
+    },
+    MuiStepLabel: {
+      styleOverrides: {
+        label: {
+          color: "#333333",
+          "&.Mui-active": {
+            color: "#0D0599",
+          },
         },
       },
     },

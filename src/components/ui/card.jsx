@@ -1,53 +1,87 @@
-import * as React from "react"
+import * as React from "react";
+import { styled } from "@mui/material/styles";
+import MuiCard from "@mui/material/Card";
+import Typography from "@mui/material/Typography";
+import Box from "@mui/material/Box";
 
-import { cn } from "../../lib/utils"
+const StyledCard = styled(MuiCard)(({ theme }) => ({
+  borderRadius: theme.shape.borderRadius,
+  backgroundColor: theme.palette.background.paper,
+  color: theme.palette.text.primary,
+  boxShadow: theme.shadows[1],
+}));
 
 const Card = React.forwardRef(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn(
-      "rounded-lg border bg-card text-card-foreground shadow-sm",
-      className
-    )}
-    {...props} />
-))
-Card.displayName = "Card"
+  <StyledCard ref={ref} className={className} {...props} />
+));
+Card.displayName = "Card";
+
+const StyledCardHeader = styled(Box)(({ theme }) => ({
+  display: "flex",
+  flexDirection: "column",
+  gap: theme.spacing(1.5),
+  padding: theme.spacing(3),
+}));
 
 const CardHeader = React.forwardRef(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("flex flex-col space-y-1.5 p-6", className)}
-    {...props} />
-))
-CardHeader.displayName = "CardHeader"
+  <StyledCardHeader ref={ref} className={className} {...props} />
+));
+CardHeader.displayName = "CardHeader";
+
+const StyledCardTitle = styled(Typography)(({ theme }) => ({
+  fontSize: theme.typography.h6.fontSize,
+  fontWeight: theme.typography.fontWeightSemibold,
+  lineHeight: 1,
+  letterSpacing: "-0.01em",
+}));
 
 const CardTitle = React.forwardRef(({ className, ...props }, ref) => (
-  <h3
-    ref={ref}
-    className={cn("text-lg font-semibold leading-none tracking-tight", className)}
-    {...props} />
-))
-CardTitle.displayName = "CardTitle"
+  <StyledCardTitle ref={ref} variant="h6" className={className} {...props} />
+));
+CardTitle.displayName = "CardTitle";
+
+const StyledCardDescription = styled(Typography)(({ theme }) => ({
+  fontSize: theme.typography.body2.fontSize,
+  color: theme.palette.text.secondary,
+}));
 
 const CardDescription = React.forwardRef(({ className, ...props }, ref) => (
-  <p
+  <StyledCardDescription
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
-    {...props} />
-))
-CardDescription.displayName = "CardDescription"
+    variant="body2"
+    className={className}
+    {...props}
+  />
+));
+CardDescription.displayName = "CardDescription";
+
+const StyledCardContent = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(3),
+  paddingTop: 0,
+}));
 
 const CardContent = React.forwardRef(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
-))
-CardContent.displayName = "CardContent"
+  <StyledCardContent ref={ref} className={className} {...props} />
+));
+CardContent.displayName = "CardContent";
+
+const StyledCardFooter = styled(Box)(({ theme }) => ({
+  display: "flex",
+  alignItems: "center",
+  padding: theme.spacing(3),
+  paddingTop: 0,
+}));
 
 const CardFooter = React.forwardRef(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("flex items-center p-6 pt-0", className)}
-    {...props} />
-))
-CardFooter.displayName = "CardFooter"
+  <StyledCardFooter ref={ref} className={className} {...props} />
+));
+CardFooter.displayName = "CardFooter";
 
-export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardDescription,
+  CardContent,
+};

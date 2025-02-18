@@ -1,20 +1,55 @@
-import * as React from "react"
+import * as React from "react";
+import { styled } from "@mui/material/styles";
+import TextField from "@mui/material/TextField";
 
-import { cn } from "../../lib/utils"
+const StyledTextField = styled(TextField)(({ theme }) => ({
+  "& .MuiInputBase-root": {
+    height: 40,
+    borderRadius: theme.shape.borderRadius,
+    backgroundColor: theme.palette.background.paper,
+    fontSize: theme.typography.body2.fontSize,
+    transition: theme.transitions.create([
+      "border-color",
+      "background-color",
+      "box-shadow",
+    ]),
+    "&:hover": {
+      borderColor: theme.palette.text.primary,
+    },
+    "&.Mui-focused": {
+      boxShadow: `${theme.palette.primary.main} 0 0 0 2px`,
+      borderColor: theme.palette.primary.main,
+    },
+    "&.Mui-disabled": {
+      opacity: 0.5,
+      cursor: "not-allowed",
+    },
+  },
+  "& .MuiInputBase-input": {
+    padding: theme.spacing(1, 1.5),
+    "&::placeholder": {
+      color: theme.palette.text.secondary,
+      opacity: 1,
+    },
+  },
+}));
 
-const Input = React.forwardRef(({ className, type, ...props }, ref) => {
-  return (
-    <input
-      type={type}
-      className={cn(
-        "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      ref={ref}
-      {...props}
-    />
-  )
-})
-Input.displayName = "Input"
+const Input = React.forwardRef(
+  ({ className, type = "text", ...props }, ref) => {
+    return (
+      <StyledTextField
+        type={type}
+        variant="outlined"
+        fullWidth
+        inputRef={ref}
+        className={className}
+        InputProps={{
+          ...props,
+        }}
+      />
+    );
+  }
+);
+Input.displayName = "Input";
 
-export { Input }
+export { Input };
