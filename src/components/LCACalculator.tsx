@@ -3,7 +3,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Grid,
   Paper,
   Step,
   StepLabel,
@@ -22,7 +21,6 @@ import React, {
 } from "react";
 import ReactDOM from "react-dom";
 import Select, { SingleValue } from "react-select";
-import { ebkpData } from "../data/ebkpData";
 import { jsonOperations } from "../services/jsonOperations";
 import { fetchKBOBMaterials } from "../services/kbobService";
 import {
@@ -36,6 +34,15 @@ import {
   UnmodelledMaterials,
 } from "../types/lca.types.ts";
 import { LCACalculator } from "../utils/lcaCalculator";
+// Import fuzzy search and sorting utilities
+import { getFuzzyMatches } from "../utils/fuzzySearch";
+import { sortMaterials } from "../utils/sortMaterials";
+
+// Import the new subcomponents
+import MaterialList from "./LCACalculator/MaterialList";
+import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
+import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
+import EditMaterialDialog from "./LCACalculator/EditMaterialDialog";
 
 const calculator = new LCACalculator();
 
@@ -47,6 +54,25 @@ interface MaterialOption {
 
 // Add new type for sort options
 type SortOption = "volume" | "name";
+
+interface FuseResult {
+  item: KbobMaterial;
+  refIndex: number;
+  score?: number;
+}
+
+interface MaterialOptionGroup {
+  label: string;
+  options: MaterialOption[];
+}
+
+// Update the MATERIAL_MAPPINGS to include partial matches
+const MATERIAL_MAPPINGS: Record<string, string[]> = {
+  Beton: ["Hochbaubeton"],
+  Concrete: ["Hochbaubeton"],
+  Holz: ["Brettschichtholz", "Holz"], // Changed to match partial "Holz" string
+  Wood: ["Brettschichtholz", "Holz"], // Changed to match partial "Holz" string
+};
 
 export default function LCACalculatorComponent(): JSX.Element {
   const theme = useTheme();
@@ -74,6 +100,8 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [sidebarContainer, setSidebarContainer] = useState<HTMLElement | null>(
     null
   );
+  const [editingMaterial, setEditingMaterial] =
+    useState<UnmodelledMaterial | null>(null);
 
   useEffect(() => {
     const loadKBOBMaterials = async () => {
@@ -152,15 +180,50 @@ export default function LCACalculatorComponent(): JSX.Element {
     [unmodelledMaterials]
   );
 
-  const kbobMaterialOptions = useMemo(
-    () =>
-      kbobMaterials.map((kbob) => ({
-        value: kbob.id,
-        label: `${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
-        isDisabled: kbob.density <= 0,
-      })),
-    [kbobMaterials]
-  );
+  const kbobMaterialOptions = useMemo(() => {
+    const validMaterials = kbobMaterials.filter((kbob) => kbob.density > 0);
+
+    // Create base options
+    const baseOptions = validMaterials.map((kbob) => ({
+      value: kbob.id,
+      label: `${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
+    }));
+
+    // For modelled materials tab, add suggestions
+    if (activeTab === 0) {
+      return (materialId: string): MaterialOption[] | MaterialOptionGroup[] => {
+        const material = modelledMaterials.find((m) => m.id === materialId);
+        if (!material) return baseOptions;
+
+        // Get fuzzy matches for this material's name using the imported utility
+        const suggestions = getFuzzyMatches(material.name, validMaterials);
+
+        if (suggestions.length === 0) return baseOptions;
+
+        // Create suggestion options with custom formatting
+        const suggestionOptions = suggestions.map((kbob: KbobMaterial) => ({
+          value: kbob.id,
+          label: `✨ ${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
+          className: "suggestion-option",
+        }));
+
+        // Group the suggestions and base options
+        return [
+          {
+            label: "🎯 Vorschläge basierend auf Name",
+            options: suggestionOptions,
+          },
+          {
+            label: "Alle Materialien",
+            options: baseOptions,
+          },
+        ];
+      };
+    }
+
+    // For unmodelled materials tab, return flat list
+    return baseOptions;
+  }, [kbobMaterials, activeTab, modelledMaterials]);
 
   const selectStyles = useMemo(
     () => ({
@@ -184,6 +247,7 @@ export default function LCACalculatorComponent(): JSX.Element {
           ? theme.palette.text.disabled
           : theme.palette.text.primary,
         cursor: state.isDisabled ? "not-allowed" : "default",
+        fontWeight: state.data.className === "suggestion-option" ? 500 : 400,
         "&:hover": {
           backgroundColor: theme.palette.action.hover,
         },
@@ -206,6 +270,23 @@ export default function LCACalculatorComponent(): JSX.Element {
       placeholder: (provided: any) => ({
         ...provided,
         color: theme.palette.text.secondary,
+      }),
+      group: (provided: any) => ({
+        ...provided,
+        padding: 0,
+        "& .css-1rhbuit-multiValue": {
+          backgroundColor: theme.palette.primary.light,
+        },
+      }),
+      groupHeading: (provided: any) => ({
+        ...provided,
+        fontSize: "0.75rem",
+        color: theme.palette.text.secondary,
+        fontWeight: 600,
+        textTransform: "none",
+        backgroundColor: theme.palette.grey[50],
+        padding: "8px 12px",
+        marginBottom: 4,
       }),
     }),
     [theme]
@@ -248,20 +329,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       console.error("Error processing JSON file:", error);
       alert("Fehler beim Verarbeiten der JSON-Datei");
     }
-  };
-
-  // Add sort function
-  const sortMaterials = <T extends { volume: number | ""; name: string }>(
-    materials: T[]
-  ) => {
-    return [...materials].sort((a, b) => {
-      if (sortBy === "volume") {
-        const volA = typeof a.volume === "number" ? a.volume : 0;
-        const volB = typeof b.volume === "number" ? b.volume : 0;
-        return volB - volA;
-      }
-      return a.name.localeCompare(b.name);
-    });
   };
 
   // Add instructions array
@@ -526,6 +593,17 @@ export default function LCACalculatorComponent(): JSX.Element {
     setActiveTab(newValue);
   };
 
+  const handleEditMaterial = (material: UnmodelledMaterial) => {
+    setEditingMaterial(material);
+  };
+
+  const handleSaveEdit = (editedMaterial: UnmodelledMaterial) => {
+    setUnmodelledMaterials((prev) =>
+      prev.map((m) => (m.id === editedMaterial.id ? editedMaterial : m))
+    );
+    setEditingMaterial(null);
+  };
+
   return (
     <Box sx={{ width: "100%", height: "100%" }}>
       {sidebarContainer &&
@@ -586,387 +664,43 @@ export default function LCACalculatorComponent(): JSX.Element {
           </Box>
 
           {activeTab === 0 ? (
-            <Grid container spacing={2}>
-              {sortMaterials(modelledMaterials).map((material, index) => (
-                <Grid item xs={12} lg={6} key={index}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 2,
-                      border: 1,
-                      borderColor: "divider",
-                      borderRadius: 1,
-                      "&:hover": {
-                        boxShadow: 2,
-                      },
-                      transition: "box-shadow 0.3s",
-                    }}
-                  >
-                    {/* Material content */}
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        mb: 2,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 2,
-                          flex: 1,
-                        }}
-                      >
-                        <Typography variant="body1" fontWeight="500">
-                          {material.name}
-                        </Typography>
-                        <Box
-                          sx={{
-                            bgcolor: "secondary.main",
-                            opacity: 0.5,
-                            px: 1,
-                            py: 0.5,
-                            borderRadius: 1,
-                          }}
-                        >
-                          <Typography variant="body2">
-                            {typeof material.volume === "number"
-                              ? material.volume.toFixed(2)
-                              : "0.00"}{" "}
-                            m³
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </Box>
-                    <Select
-                      value={
-                        matches[material.id]
-                          ? {
-                              value: matches[material.id],
-                              label:
-                                kbobMaterials.find(
-                                  (k) => k.id === matches[material.id]
-                                )?.nameDE || "",
-                              isDisabled: false,
-                            }
-                          : null
-                      }
-                      onChange={(newValue) =>
-                        handleMaterialSelect(newValue, material.id)
-                      }
-                      options={kbobMaterialOptions}
-                      styles={selectStyles}
-                      className="w-full"
-                    />
-                  </Paper>
-                </Grid>
-              ))}
-            </Grid>
+            <ModelledMaterialList
+              modelledMaterials={modelledMaterials}
+              kbobMaterials={kbobMaterials}
+              matches={matches}
+              handleMaterialSelect={handleMaterialSelect}
+              kbobMaterialOptions={kbobMaterialOptions}
+              selectStyles={selectStyles}
+              sortMaterials={(materials) => sortMaterials(materials, sortBy)}
+            />
           ) : (
             <>
-              <Paper
-                elevation={0}
-                sx={{
-                  p: 3,
-                  mb: 3,
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: 1,
-                }}
-              >
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  Neues Material hinzufügen
-                </Typography>
-                <Box
-                  component="form"
-                  onSubmit={handleAddUnmodelledMaterial}
-                  sx={{ width: "100%" }}
-                >
-                  <Grid container spacing={2} sx={{ mb: 2 }}>
-                    <Grid item xs={12} md={6}>
-                      <Typography
-                        variant="body2"
-                        sx={{ mb: 1, fontWeight: 500 }}
-                      >
-                        Name
-                      </Typography>
-                      <Box
-                        component="input"
-                        type="text"
-                        value={newUnmodelledMaterial.name}
-                        onChange={(e) =>
-                          setNewUnmodelledMaterial({
-                            ...newUnmodelledMaterial,
-                            name: e.target.value,
-                          })
-                        }
-                        sx={{
-                          width: "100%",
-                          p: 1.5,
-                          border: 1,
-                          borderColor: "divider",
-                          borderRadius: 1,
-                          bgcolor: "background.paper",
-                          "&:hover": {
-                            borderColor: "primary.main",
-                          },
-                          "&:focus": {
-                            outline: "none",
-                            borderColor: "primary.main",
-                            boxShadow: 1,
-                          },
-                        }}
-                        required
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Typography
-                        variant="body2"
-                        sx={{ mb: 1, fontWeight: 500 }}
-                      >
-                        EBKP
-                      </Typography>
-                      <Select
-                        value={
-                          newUnmodelledMaterial.ebkp
-                            ? {
-                                value: newUnmodelledMaterial.ebkp,
-                                label: `${newUnmodelledMaterial.ebkp} - ${
-                                  ebkpData.find(
-                                    (item) =>
-                                      item.code === newUnmodelledMaterial.ebkp
-                                  )?.bezeichnung || ""
-                                }`,
-                              }
-                            : null
-                        }
-                        onChange={(newValue) =>
-                          setNewUnmodelledMaterial({
-                            ...newUnmodelledMaterial,
-                            ebkp: newValue?.value || "",
-                          })
-                        }
-                        options={ebkpData.map((item) => ({
-                          value: item.code,
-                          label: `${item.code} - ${item.bezeichnung}`,
-                        }))}
-                        styles={selectStyles}
-                        placeholder="Wählen Sie einen EBKP-Code"
-                        isClearable
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Typography
-                        variant="body2"
-                        sx={{ mb: 1, fontWeight: 500 }}
-                      >
-                        Volumen (m³)
-                      </Typography>
-                      <Box
-                        component="input"
-                        type="number"
-                        step="0.01"
-                        value={
-                          newUnmodelledMaterial.volume === ""
-                            ? ""
-                            : newUnmodelledMaterial.volume
-                        }
-                        onChange={(e) =>
-                          setNewUnmodelledMaterial({
-                            ...newUnmodelledMaterial,
-                            volume:
-                              e.target.value === ""
-                                ? ""
-                                : parseFloat(e.target.value),
-                          })
-                        }
-                        sx={{
-                          width: "100%",
-                          p: 1.5,
-                          border: 1,
-                          borderColor: "divider",
-                          borderRadius: 1,
-                          bgcolor: "background.paper",
-                          "&:hover": {
-                            borderColor: "primary.main",
-                          },
-                          "&:focus": {
-                            outline: "none",
-                            borderColor: "primary.main",
-                            boxShadow: 1,
-                          },
-                        }}
-                        required
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Typography
-                        variant="body2"
-                        sx={{ mb: 1, fontWeight: 500 }}
-                      >
-                        KBOB Material
-                      </Typography>
-                      <Select
-                        value={
-                          newUnmodelledMaterial.kbobId
-                            ? ({
-                                value: newUnmodelledMaterial.kbobId,
-                                label:
-                                  kbobMaterials.find(
-                                    (k) => k.id === newUnmodelledMaterial.kbobId
-                                  )?.nameDE || "",
-                                isDisabled: false,
-                              } as MaterialOption)
-                            : null
-                        }
-                        onChange={(newValue: SingleValue<MaterialOption>) =>
-                          setNewUnmodelledMaterial({
-                            ...newUnmodelledMaterial,
-                            kbobId: newValue?.value || "",
-                          })
-                        }
-                        options={kbobMaterialOptions}
-                        styles={selectStyles}
-                      />
-                    </Grid>
-                  </Grid>
-                  <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-                    <Button type="submit" variant="contained" color="primary">
-                      Hinzufügen
-                    </Button>
-                  </Box>
-                </Box>
-              </Paper>
-              <Grid container spacing={2}>
-                {sortMaterials(unmodelledMaterials).map((material, index) => (
-                  <Grid item xs={12} lg={6} key={index}>
-                    <Paper
-                      elevation={0}
-                      sx={{
-                        p: 2,
-                        border: 1,
-                        borderColor: "divider",
-                        borderRadius: 1,
-                        "&:hover": {
-                          boxShadow: 2,
-                        },
-                        transition: "box-shadow 0.3s",
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          mb: 2,
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 2,
-                            flex: 1,
-                          }}
-                        >
-                          <Typography variant="body1" fontWeight="500">
-                            {material.name}
-                          </Typography>
-                          <Box
-                            sx={{
-                              bgcolor: "warning.light",
-                              px: 1,
-                              py: 0.5,
-                              borderRadius: 1,
-                              opacity: 0.8,
-                            }}
-                          >
-                            <Typography variant="caption" color="warning.dark">
-                              Nicht modelliert
-                            </Typography>
-                          </Box>
-                          {material.ebkp && (
-                            <Box
-                              sx={{
-                                bgcolor: "info.light",
-                                px: 1,
-                                py: 0.5,
-                                borderRadius: 1,
-                                opacity: 0.8,
-                              }}
-                            >
-                              <Typography variant="caption" color="info.dark">
-                                {material.ebkp}
-                              </Typography>
-                            </Box>
-                          )}
-                          <Box
-                            sx={{
-                              bgcolor: "secondary.main",
-                              opacity: 0.5,
-                              px: 1,
-                              py: 0.5,
-                              borderRadius: 1,
-                            }}
-                          >
-                            <Typography variant="body2">
-                              {typeof material.volume === "number"
-                                ? material.volume.toFixed(2)
-                                : "0.00"}{" "}
-                              m³
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <Button
-                          onClick={() => handleRemoveUnmodelledMaterial(index)}
-                          variant="text"
-                          color="error"
-                          startIcon={
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="20"
-                              height="20"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M3 6h18"></path>
-                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                            </svg>
-                          }
-                        >
-                          Löschen
-                        </Button>
-                      </Box>
-                      <Select
-                        value={
-                          material.kbobId
-                            ? ({
-                                value: material.kbobId,
-                                label:
-                                  kbobMaterials.find(
-                                    (k) => k.id === material.kbobId
-                                  )?.nameDE || "",
-                                isDisabled: false,
-                              } as MaterialOption)
-                            : null
-                        }
-                        onChange={(newValue: SingleValue<MaterialOption>) =>
-                          handleMaterialSelect(newValue, material.id)
-                        }
-                        options={kbobMaterialOptions}
-                        styles={selectStyles}
-                      />
-                    </Paper>
-                  </Grid>
-                ))}
-              </Grid>
+              <UnmodelledMaterialForm
+                newUnmodelledMaterial={newUnmodelledMaterial}
+                setNewUnmodelledMaterial={setNewUnmodelledMaterial}
+                handleAddUnmodelledMaterial={handleAddUnmodelledMaterial}
+                kbobMaterials={kbobMaterials}
+                kbobMaterialOptions={kbobMaterialOptions}
+                selectStyles={selectStyles}
+              />
+              <MaterialList
+                unmodelledMaterials={unmodelledMaterials}
+                kbobMaterials={kbobMaterials}
+                handleMaterialSelect={handleMaterialSelect}
+                handleRemoveUnmodelledMaterial={handleRemoveUnmodelledMaterial}
+                handleEditMaterial={handleEditMaterial}
+                kbobMaterialOptions={kbobMaterialOptions}
+                selectStyles={selectStyles}
+              />
+              <EditMaterialDialog
+                open={!!editingMaterial}
+                material={editingMaterial}
+                onClose={() => setEditingMaterial(null)}
+                onSave={handleSaveEdit}
+                selectStyles={selectStyles}
+                kbobMaterials={kbobMaterials}
+                kbobMaterialOptions={kbobMaterialOptions}
+              />
             </>
           )}
         </Paper>

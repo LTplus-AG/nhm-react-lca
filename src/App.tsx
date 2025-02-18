@@ -14,46 +14,80 @@ function App(): JSX.Element {
         minHeight: "100vh",
         bgcolor: "background.default",
         width: "100%",
+        position: "absolute",
+        top: "64px",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        overflow: "hidden",
       }}
     >
-      <Box sx={{ py: 2, height: "100vh", overflow: "hidden" }}>
-        <Grid container sx={{ height: "100%" }}>
-          {/* Sidebar */}
-          <Grid
-            item
-            xs={12}
-            md={3}
-            lg={2.5}
-            sx={{
-              borderRight: 1,
-              borderColor: "divider",
-              p: 2,
+      <Grid
+        container
+        sx={{
+          height: "100%",
+        }}
+      >
+        {/* Sidebar */}
+        <Grid
+          item
+          xs={12}
+          md={3}
+          lg={2.5}
+          sx={{
+            borderRight: 1,
+            borderColor: "divider",
+            position: "fixed",
+            top: "64px",
+            left: 0,
+            bottom: 0,
+            width: "inherit",
+            bgcolor: "background.default",
+            "& #sidebar": {
               height: "100%",
-              position: "sticky",
-              top: 0,
-            }}
-          >
-            <div id="sidebar"></div>
-          </Grid>
-
-          {/* Main Content */}
-          <Grid 
-            item 
-            xs={12} 
-            md={9} 
-            lg={9.5} 
-            sx={{ 
+              display: "flex",
+              flexDirection: "column",
               p: 2,
-              height: "100%",
-              overflowY: "auto",
-            }}
-          >
-            <Routes>
-              <Route path="/" element={<LCACalculator />} />
-            </Routes>
-          </Grid>
+              "& > div": {
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                "& > div:first-of-type": {
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 3,
+                },
+                "& > div:last-child": {
+                  mt: "auto",
+                  pt: 3,
+                },
+              },
+            },
+          }}
+        >
+          <div id="sidebar"></div>
         </Grid>
-      </Box>
+
+        {/* Main Content */}
+        <Grid
+          item
+          xs={12}
+          md={9}
+          lg={9.5}
+          sx={{
+            p: 2,
+            height: "calc(100vh - 64px)",
+            overflowY: "auto",
+            marginLeft: { xs: 0, md: "25%", lg: "20.83333%" },
+            position: "relative",
+          }}
+        >
+          <Routes>
+            <Route path="/" element={<LCACalculator />} />
+          </Routes>
+        </Grid>
+      </Grid>
     </Box>
   );
 }
