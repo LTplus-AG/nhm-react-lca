@@ -1,10 +1,10 @@
+import React from "react";
 import { Routes, Route } from "react-router-dom";
 import LCACalculator from "./components/LCACalculator.tsx";
-import { useEffect } from "react";
 import { Box, Grid } from "@mui/material";
 
 function App(): JSX.Element {
-  useEffect(() => {
+  React.useEffect(() => {
     document.documentElement.classList.remove("dark");
   }, []);
 

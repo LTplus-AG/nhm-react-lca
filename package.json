@@ -8,7 +8,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "populate-db": "ts-node scripts/populateKbobDb.ts"
+    "populate-db": "ts-node scripts/populateKbobDb.ts",
+    "start:server": "node server/index.js",
+    "dev:server": "nodemon server/index.js",
+    "health-check": "node server/healthCheck.js"
   },
   "dependencies": {
     "@emotion/react": "^11.11.3",
@@ -32,7 +35,7 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.294.0",
     "match-sorter": "^8.0.0",
-    "node-fetch": "^2.6.7",
+    "node-fetch": "^2.7.0",
     "oidc-client-ts": "^3.1.0",
     "postcss": "^8.4.49",
     "react": "^18.3.1",

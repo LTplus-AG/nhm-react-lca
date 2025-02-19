@@ -30,38 +30,103 @@ interface KbobMaterial {
   biogenicCarbon: number;
 }
 
-function parseDensity(densityStr: string | null | undefined): number {
-  if (!densityStr) return 0;
-  const numericValue = parseFloat(densityStr.replace(/[^\d.]/g, ""));
+function parseDensity(densityStr: string | number | null | undefined): number {
+  if (densityStr === null || densityStr === undefined || densityStr === "-")
+    return 0;
+  if (typeof densityStr === "number") return densityStr;
+  const numericValue = parseFloat(densityStr.toString().replace(/[^\d.]/g, ""));
   return isNaN(numericValue) ? 0 : numericValue;
 }
 
+// Use the Vite dev server URL since it proxies to the backend
+const API_BASE_URL = import.meta.env.DEV ? "http://localhost:5173" : "";
+
 export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
   try {
-    const response = await fetch("http://localhost:3000/backend/kbob");
+    console.log("Fetching KBOB materials from local DB");
+    const url = `${API_BASE_URL}/backend/kbob`;
+    console.log("Fetching from URL:", url);
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+    });
+
+    console.log("Response status:", response.status);
+    console.log(
+      "Response headers:",
+      Object.fromEntries(response.headers.entries())
+    );
 
     if (!response.ok) {
+      console.error("KBOB fetch failed:", response.status, response.statusText);
+      const errorText = await response.text();
+      console.error("Error response body:", errorText);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data = await response.json();
+    // Get the raw response text first for debugging
+    const responseText = await response.text();
+    console.log("Raw response text:", responseText);
+
+    // Try to parse the JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (error) {
+      console.error("JSON parsing error:", error);
+      throw new Error("Failed to parse response as JSON");
+    }
+
+    console.log("Raw KBOB response:", data);
+
+    if (!data || !Array.isArray(data.materials)) {
+      console.error("Invalid KBOB data format:", data);
+      throw new Error("Invalid KBOB data format");
+    }
 
     const transformedMaterials: KbobMaterial[] = data.materials
-      .map((material: RawKbobMaterial) => ({
-        id: material.uuid,
-        nameDE: material.nameDE,
-        density: parseDensity(material.density),
-        unit: material.unit,
-        gwp: material.gwpTotal,
-        gwpProduction: material.gwpProduction,
-        gwpDisposal: material.gwpDisposal,
-        ubp: material.ubp21Total,
-        ubpProduction: material.ubpProduction,
-        ubpDisposal: material.ubpDisposal,
-        penr: material.primaryEnergyNonRenewableTotal,
-        biogenicCarbon: material.biogenicCarbon,
-      }))
-      .filter((material: KbobMaterial) => material.nameDE?.trim());
+      .map((material: RawKbobMaterial) => {
+        try {
+          if (!material || typeof material !== "object") {
+            console.warn("Invalid material object:", material);
+            return null;
+          }
+
+          return {
+            id: material.id,
+            nameDE: material.nameDE,
+            density: parseDensity(material.density),
+            unit: material.unit || "kg",
+            gwp: material.gwpTotal || 0,
+            gwpProduction: material.gwpProduction || 0,
+            gwpDisposal: material.gwpDisposal || 0,
+            ubp: material.ubp21Total || 0,
+            ubpProduction: material.ubpProduction || 0,
+            ubpDisposal: material.ubpDisposal || 0,
+            penr: material.primaryEnergyNonRenewableTotal || 0,
+            biogenicCarbon: material.biogenicCarbon || 0,
+          };
+        } catch (error) {
+          console.error("Error transforming material:", material, error);
+          return null;
+        }
+      })
+      .filter(
+        (material: KbobMaterial | null): material is KbobMaterial =>
+          material !== null && Boolean(material.nameDE?.trim())
+      );
+
+    if (transformedMaterials.length === 0) {
+      console.warn("No valid KBOB materials found after transformation");
+    } else {
+      console.log(`Transformed ${transformedMaterials.length} KBOB materials`);
+      console.log("Sample transformed material:", transformedMaterials[0]);
+    }
 
     return transformedMaterials;
   } catch (error) {

@@ -4,10 +4,13 @@ const path = require("path");
 const cors = require("cors");
 const duckdb = require("duckdb");
 const fs = require("fs");
+const axios = require("axios");
 
 // Create Express app and set the port
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// Create database connection - simplified to match working version
 const db = new duckdb.Database("kbob_materials.db");
 
 // Enable JSON parsing for POST requests
@@ -28,43 +31,60 @@ app.use((req, res, next) => {
   next();
 });
 
-// New endpoint to get IFC parsing results
-app.get("/api/ifc-results/:projectId", (req, res) => {
-  const projectId = req.params.projectId;
-  // Construct the file path. Assuming the ifc_results folder is at the repository root
-  const filePath = path.join(
-    process.cwd(),
-    "ifc_results",
-    `ifc_result_${projectId}.json`
-  );
+// Python backend URL
+const PYTHON_BACKEND_URL =
+  process.env.PYTHON_BACKEND_URL || "http://localhost:5000";
 
-  fs.readFile(filePath, "utf-8", (err, data) => {
-    if (err) {
-      console.error("Error reading IFC result file:", err);
-      return res.status(404).json({ error: "IFC result not found" });
+// Update the IFC results endpoint
+app.get("/api/ifc-results/:projectId/:extra?", async (req, res) => {
+  const { projectId, extra } = req.params;
+  console.log(`Received request for IFC results - Project ID: ${projectId}`);
+
+  try {
+    // First try to get data from Python backend
+    const pythonBackendUrl = `${PYTHON_BACKEND_URL}/api/ifc-results/${projectId}`;
+    console.log(`Forwarding request to Python backend: ${pythonBackendUrl}`);
+
+    const response = await axios.get(pythonBackendUrl, {
+      timeout: 10000,
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (response.data) {
+      console.log("Received data from Python backend");
+      return res.json(response.data);
     }
-    try {
-      const jsonData = JSON.parse(data);
-      res.json(jsonData);
-    } catch (parseErr) {
-      console.error("Error parsing IFC result JSON:", parseErr);
-      res.status(500).json({ error: "Error parsing IFC result file" });
+
+    // Fallback to empty response if no data
+    console.log("No data received from Python backend, sending empty response");
+    return res.json({
+      ifcData: { materials: [] },
+      materialMappings: {},
+    });
+  } catch (error) {
+    console.error("Error fetching IFC results:", error.message);
+    if (error.code === "ECONNREFUSED") {
+      return res.status(503).json({
+        error: "Python backend service unavailable",
+        message: "Could not connect to Python backend service",
+      });
     }
-  });
+    return res.json({
+      ifcData: { materials: [] },
+      materialMappings: {},
+    });
+  }
 });
 
 // New endpoint to update material mappings via IFC parsing result
 app.post("/api/update-material-mappings", (req, res) => {
   console.log("Received update-material-mappings payload:", req.body);
-  // Here, you would forward the payload to your Python backend or process it accordingly.
   res.json({ message: "Material mappings updated successfully" });
 });
 
-/**
- * GET /backend/kbob
- * This route proxies requests to the KBOB API endpoint.
- * It takes any query parameters (e.g. ?pageSize=all) and appends them to the target URL.
- */
+// GET /backend/kbob endpoint - reverted to working version
 app.get("/backend/kbob", (req, res) => {
   try {
     db.all(`SELECT * FROM materials`, (err, materials) => {
@@ -107,20 +127,59 @@ app.get("*", (req, res) => {
   res.status(404).send("Not found");
 });
 
+// Add health check endpoint that also checks Python backend
+app.get("/api/health", async (req, res) => {
+  try {
+    // Check Python backend health
+    const pythonHealth = await axios.get(`${PYTHON_BACKEND_URL}/health`, {
+      timeout: 5000,
+    });
+
+    res.json({
+      status: "ok",
+      pythonBackend: pythonHealth.data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "error",
+      pythonBackend: {
+        status: "unavailable",
+        error: error.message,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: "Something broke!", details: err.message });
+  console.error("Unhandled error:", err);
+  res.status(500).json({
+    error: "Internal server error",
+    message: err.message,
+  });
 });
 
 // Start the server
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-  console.log("CORS enabled for http://localhost:5173");
-});
+const server = app
+  .listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`CORS enabled for http://localhost:5173`);
+  })
+  .on("error", (err) => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  });
 
 // Handle process termination
 process.on("SIGINT", () => {
-  db.close();
-  process.exit();
+  console.log("Shutting down server...");
+  server.close(() => {
+    console.log("Server stopped.");
+    if (db) {
+      db.close();
+    }
+    process.exit();
+  });
 });
