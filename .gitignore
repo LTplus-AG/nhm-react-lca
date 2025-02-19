@@ -25,3 +25,6 @@ dist-ssr
 
 .vercel
 .env
+.env.production
+kbob_materials.db
+kbob_materials.db.wal

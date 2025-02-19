@@ -1,29 +1,45 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import federation from "@originjs/vite-plugin-federation";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
+  // Load environment variables based on the current mode.
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      federation({
+        name: "lca-ui",
+        filename: "remoteEntry.js",
+        exposes: {
+          "./App": "./src/App.tsx",
+        },
+        shared: ["react", "react-dom", "react-router-dom"],
+      }),
+    ],
     server: {
       proxy: {
-        "/api/kbob": {
-          target: "https://www.lcadata.ch",
+        "/backend/kbob": {
+          target: "http://localhost:3000",
           changeOrigin: true,
           secure: false,
-          rewrite: (path) =>
-            path.replace(/^\/api\/kbob/, "/api/kbob/materials"),
-          headers: {
-            "x-api-key": env.IFC_API_KEY,
-          },
+        },
+        "/api": {
+          target: "http://localhost:3000",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path,
         },
       },
     },
     resolve: {
       extensions: [".js", ".jsx", ".ts", ".tsx"],
+    },
+    build: {
+      target: "esnext",
+      minify: false,
     },
   };
 });
