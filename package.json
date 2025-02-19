@@ -22,6 +22,7 @@
     "@radix-ui/react-slot": "^1.0.2",
     "@radix-ui/react-tabs": "^1.0.4",
     "autoprefixer": "^10.4.20",
+    "axios": "^1.7.9",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.4",
     "cors": "^2.8.5",

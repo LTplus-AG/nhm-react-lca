@@ -3,17 +3,21 @@ const express = require("express");
 const path = require("path");
 const cors = require("cors");
 const duckdb = require("duckdb");
+const fs = require("fs");
 
 // Create Express app and set the port
 const app = express();
 const PORT = 3000;
 const db = new duckdb.Database("kbob_materials.db");
 
+// Enable JSON parsing for POST requests
+app.use(express.json());
+
 // Enable CORS for all routes
 app.use(
   cors({
     origin: "http://localhost:5173", // Your Vite dev server
-    methods: ["GET"],
+    methods: ["GET", "POST"],
     credentials: true,
   })
 );
@@ -22,6 +26,38 @@ app.use(
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   next();
+});
+
+// New endpoint to get IFC parsing results
+app.get("/api/ifc-results/:projectId", (req, res) => {
+  const projectId = req.params.projectId;
+  // Construct the file path. Assuming the ifc_results folder is at the repository root
+  const filePath = path.join(
+    process.cwd(),
+    "ifc_results",
+    `ifc_result_${projectId}.json`
+  );
+
+  fs.readFile(filePath, "utf-8", (err, data) => {
+    if (err) {
+      console.error("Error reading IFC result file:", err);
+      return res.status(404).json({ error: "IFC result not found" });
+    }
+    try {
+      const jsonData = JSON.parse(data);
+      res.json(jsonData);
+    } catch (parseErr) {
+      console.error("Error parsing IFC result JSON:", parseErr);
+      res.status(500).json({ error: "Error parsing IFC result file" });
+    }
+  });
+});
+
+// New endpoint to update material mappings via IFC parsing result
+app.post("/api/update-material-mappings", (req, res) => {
+  console.log("Received update-material-mappings payload:", req.body);
+  // Here, you would forward the payload to your Python backend or process it accordingly.
+  res.json({ message: "Material mappings updated successfully" });
 });
 
 /**

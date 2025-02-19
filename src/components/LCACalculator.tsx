@@ -37,6 +37,7 @@ import { LCACalculator } from "../utils/lcaCalculator";
 // Import fuzzy search and sorting utilities
 import { getFuzzyMatches } from "../utils/fuzzySearch";
 import { sortMaterials } from "../utils/sortMaterials";
+import axios from "axios";
 
 // Import the new subcomponents
 import MaterialList from "./LCACalculator/MaterialList";
@@ -74,6 +75,12 @@ const MATERIAL_MAPPINGS: Record<string, string[]> = {
   Wood: ["Brettschichtholz", "Holz"], // Changed to match partial "Holz" string
 };
 
+interface IFCResult {
+  projectId: string;
+  ifcData: any; // define more specific type if available
+  materialMappings: Record<string, string>;
+}
+
 export default function LCACalculatorComponent(): JSX.Element {
   const theme = useTheme();
   const [modelledMaterials, setModelledMaterials] = useState<Material[]>(
@@ -102,6 +109,12 @@ export default function LCACalculatorComponent(): JSX.Element {
   );
   const [editingMaterial, setEditingMaterial] =
     useState<UnmodelledMaterial | null>(null);
+  const [ifcResult, setIfcResult] = useState<IFCResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  // Assuming we have a projectId available via context or similar
+  const projectId = "defaultProjectId"; // Replace with actual project id retrieval
 
   useEffect(() => {
     const loadKBOBMaterials = async () => {
@@ -120,6 +133,17 @@ export default function LCACalculatorComponent(): JSX.Element {
     }
     setSidebarContainer(container);
   }, []);
+
+  useEffect(() => {
+    axios
+      .get(`/api/ifc-results/${projectId}`)
+      .then((response) => {
+        setIfcResult(response.data);
+      })
+      .catch((error) => {
+        console.error("Error fetching IFC results:", error);
+      });
+  }, [projectId]);
 
   const handleMatch = useCallback((modelId: string, kbobId?: string): void => {
     setMatches((prev) => {
@@ -604,6 +628,34 @@ export default function LCACalculatorComponent(): JSX.Element {
     setEditingMaterial(null);
   };
 
+  // Handler for the 'Abschliessen' button click
+  const handleAbschliessen = () => {
+    setLoading(true);
+    // Prepare payload with IFC parse result and its material mappings if present
+    const payload = {
+      projectId: projectId,
+      // If the backend expects material mappings, assume they reside in ifcResult.materialMappings
+      materialMappings:
+        ifcResult && ifcResult.materialMappings
+          ? ifcResult.materialMappings
+          : {},
+      // Alternatively, you can send the whole IFC result if needed
+      // ifcResult: ifcResult
+    };
+
+    axios
+      .post("/api/update-material-mappings", payload)
+      .then((response) => {
+        setMessage("Abschliessen erfolgreich!");
+        setLoading(false);
+      })
+      .catch((error) => {
+        console.error("Error updating material mappings:", error);
+        setMessage("Fehler beim Abschliessen");
+        setLoading(false);
+      });
+  };
+
   return (
     <Box sx={{ width: "100%", height: "100%" }}>
       {sidebarContainer &&
@@ -702,6 +754,32 @@ export default function LCACalculatorComponent(): JSX.Element {
                 kbobMaterialOptions={kbobMaterialOptions}
               />
             </>
+          )}
+        </Paper>
+        <Paper style={{ padding: "16px", margin: "16px" }}>
+          <Typography variant="h5" gutterBottom>
+            IFC Parsing Ergebnisse
+          </Typography>
+          {ifcResult ? (
+            <pre style={{ backgroundColor: "#fafafa", padding: "8px" }}>
+              {JSON.stringify(ifcResult, null, 2)}
+            </pre>
+          ) : (
+            <Typography variant="body1">Keine IFC Daten verfügbar.</Typography>
+          )}
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleAbschliessen}
+            disabled={loading || !ifcResult}
+            style={{ marginTop: "16px" }}
+          >
+            Abschliessen
+          </Button>
+          {message && (
+            <Typography variant="subtitle1" style={{ marginTop: "16px" }}>
+              {message}
+            </Typography>
           )}
         </Paper>
       </Box>
