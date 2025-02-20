@@ -1,21 +1,16 @@
+import rawMaterials from '../data/indicatorsKBOB_v6.json';
+
 interface RawKbobMaterial {
-  id: string;
-  uuid: string;
-  nameDE: string;
-  nameFR: string;
-  density: string;
-  unit: string;
-  gwpTotal: number;
-  gwpProduction: number;
-  gwpDisposal: number;
-  ubp21Total: number;
-  ubpProduction: number;
-  ubpDisposal: number;
-  primaryEnergyNonRenewableTotal: number;
-  biogenicCarbon: number;
+  KBOB_ID: string | number;
+  Name: string;
+  GWP: number;
+  UBP: number;
+  PENRE: number;
+  "kg/unit": string | number | null;
+  uuid: string | { $binary: { base64: string; subType: string; } };
 }
 
-interface KbobMaterial {
+export interface KbobMaterial {
   id: string;
   nameDE: string;
   density: number;
@@ -30,110 +25,66 @@ interface KbobMaterial {
   biogenicCarbon: number;
 }
 
+// Helper function to parse density
 function parseDensity(densityStr: string | number | null | undefined): number {
-  if (densityStr === null || densityStr === undefined || densityStr === "-")
-    return 0;
+  if (densityStr === null || densityStr === undefined || densityStr === "-") return 0;
   if (typeof densityStr === "number") return densityStr;
   const numericValue = parseFloat(densityStr.toString().replace(/[^\d.]/g, ""));
   return isNaN(numericValue) ? 0 : numericValue;
 }
 
-// Use environment variables for API configuration
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? "http://localhost:5173" : "");
+// Helper to get UUID from the complex object structure
+function getUUID(uuidField: string | { $binary: { base64: string; subType: string; } }): string {
+  if (typeof uuidField === 'string') return uuidField;
+  return uuidField.$binary.base64;
+}
 
+// Convert raw material to KbobMaterial format
+function convertToKbobMaterial(raw: RawKbobMaterial): KbobMaterial {
+  return {
+    id: raw.KBOB_ID.toString(),
+    nameDE: raw.Name,
+    density: parseDensity(raw["kg/unit"]),
+    unit: typeof raw["kg/unit"] === "number" ? "kg" : (raw["kg/unit"] || "kg"),
+    gwp: raw.GWP || 0,
+    gwpProduction: raw.GWP || 0, // Assuming GWP is production value
+    gwpDisposal: 0,
+    ubp: raw.UBP || 0,
+    ubpProduction: raw.UBP || 0, // Assuming UBP is production value
+    ubpDisposal: 0,
+    penr: raw.PENRE || 0,
+    biogenicCarbon: 0
+  };
+}
+
+// Simulates the original fetchKBOBMaterials function
 export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
-  try {
-    console.log("Fetching KBOB materials from local DB");
-    const url = `${API_BASE_URL}/backend/kbob`;
-    console.log("Fetching from URL:", url);
+  // Filter out any items that don't have required fields
+  const validMaterials = (rawMaterials as RawKbobMaterial[])
+    .filter(item => item.KBOB_ID && item.Name)
+    .map(convertToKbobMaterial);
+  
+  return validMaterials;
+}
 
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      mode: "cors"
-    });
+// Simulates fetching a single material by ID
+export async function fetchKBOBMaterialById(id: string): Promise<KbobMaterial | null> {
+  const material = (rawMaterials as RawKbobMaterial[])
+    .find(item => item.KBOB_ID.toString() === id);
+  
+  return material ? convertToKbobMaterial(material) : null;
+}
 
-    console.log("Response status:", response.status);
-    console.log(
-      "Response headers:",
-      Object.fromEntries(response.headers.entries())
-    );
+// Simulates search functionality
+export async function searchKBOBMaterials(searchTerm: string): Promise<KbobMaterial[]> {
+  const normalizedSearch = searchTerm.toLowerCase();
+  
+  const filteredMaterials = (rawMaterials as RawKbobMaterial[])
+    .filter(item => 
+      item.Name.toLowerCase().includes(normalizedSearch) ||
+      item.KBOB_ID.toString().includes(normalizedSearch)
+    )
+    .map(convertToKbobMaterial);
 
-    if (!response.ok) {
-      console.error("KBOB fetch failed:", response.status, response.statusText);
-      const errorText = await response.text();
-      console.error("Error response body:", errorText);
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    // Get the raw response text first for debugging
-    const responseText = await response.text();
-    console.log("Raw response text:", responseText);
-
-    // Try to parse the JSON
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (error) {
-      console.error("JSON parsing error:", error);
-      throw new Error("Failed to parse response as JSON");
-    }
-
-    console.log("Raw KBOB response:", data);
-
-    if (!data || !Array.isArray(data.materials)) {
-      console.error("Invalid KBOB data format:", data);
-      throw new Error("Invalid KBOB data format");
-    }
-
-    const transformedMaterials: KbobMaterial[] = data.materials
-      .map((material: RawKbobMaterial) => {
-        try {
-          if (!material || typeof material !== "object") {
-            console.warn("Invalid material object:", material);
-            return null;
-          }
-
-          return {
-            id: material.id,
-            nameDE: material.nameDE,
-            density: parseDensity(material.density),
-            unit: material.unit || "kg",
-            gwp: material.gwpTotal || 0,
-            gwpProduction: material.gwpProduction || 0,
-            gwpDisposal: material.gwpDisposal || 0,
-            ubp: material.ubp21Total || 0,
-            ubpProduction: material.ubpProduction || 0,
-            ubpDisposal: material.ubpDisposal || 0,
-            penr: material.primaryEnergyNonRenewableTotal || 0,
-            biogenicCarbon: material.biogenicCarbon || 0,
-          };
-        } catch (error) {
-          console.error("Error transforming material:", material, error);
-          return null;
-        }
-      })
-      .filter(
-        (material: KbobMaterial | null): material is KbobMaterial =>
-          material !== null && Boolean(material.nameDE?.trim())
-      );
-
-    if (transformedMaterials.length === 0) {
-      console.warn("No valid KBOB materials found after transformation");
-    } else {
-      console.log(`Transformed ${transformedMaterials.length} KBOB materials`);
-      console.log("Sample transformed material:", transformedMaterials[0]);
-    }
-
-    return transformedMaterials;
-  } catch (error) {
-    console.error("Failed to fetch KBOB materials:", error);
-    throw error;
-  }
+  return filteredMaterials;
 }

@@ -5,23 +5,19 @@ export const mockProjectData = {
       materials: [
         {
           name: "Beton",
-          volume: 245.5,
+          volume: 945.5,
         },
         {
           name: "Bewehrungsstahl",
-          volume: 17.8,
+          volume: 64.8,
         },
         {
           name: "Holz",
-          volume: 35.3,
+          volume: 345.3,
         },
         {
           name: "Dämmung Glaswolle",
-          volume: 12.6,
-        },
-        {
-          name: "Fenster",
-          volume: 6.2,
+          volume: 123.6,
         },
         {
           name: "OSB Platte",
@@ -29,19 +25,15 @@ export const mockProjectData = {
         },
         {
           name: "Vollholz",
-          volume: 12.5,
+          volume: 124.5,
         },
         {
           name: "Stahlblech",
-          volume: 3.2,
-        },
-        {
-          name: "Steinwolle",
-          volume: 17.7,
+          volume: 33.2,
         },
         {
           name: "Weichfaser",
-          volume: 6.8,
+          volume: 66.8,
         },
       ],
     },

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Grid, Typography, Button, TextField } from "@mui/material";
 import Select from "react-select";
 import { UnmodelledMaterial, KbobMaterial } from "../../types/lca.types";
@@ -24,6 +24,21 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
   kbobMaterialOptions,
   selectStyles,
 }) => {
+  const [densityError, setDensityError] = useState("");
+  const [selectedKbobMaterial, setSelectedKbobMaterial] =
+    useState<KbobMaterial | null>(null);
+
+  useEffect(() => {
+    if (newUnmodelledMaterial.kbobId) {
+      const material = kbobMaterials.find(
+        (m) => m.id === newUnmodelledMaterial.kbobId
+      );
+      setSelectedKbobMaterial(material || null);
+    } else {
+      setSelectedKbobMaterial(null);
+    }
+  }, [newUnmodelledMaterial.kbobId, kbobMaterials]);
+
   // Create EBKP options with correct property name
   const ebkpOptions = React.useMemo(
     () =>
@@ -46,6 +61,38 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
         });
       }
     }
+  };
+
+  const handleDensityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+
+    if (selectedKbobMaterial?.densityRange) {
+      const { min, max } = selectedKbobMaterial.densityRange;
+      if (value < min || value > max) {
+        setDensityError(`Dichte muss zwischen ${min} und ${max} kg/m³ liegen`);
+      } else {
+        setDensityError("");
+      }
+    }
+
+    setNewUnmodelledMaterial({
+      ...newUnmodelledMaterial,
+      density: value,
+    });
+  };
+
+  const handleKbobMaterialChange = (newValue: any) => {
+    const selectedMaterial = kbobMaterials.find(
+      (k) => k.id === newValue?.value
+    );
+    setNewUnmodelledMaterial({
+      ...newUnmodelledMaterial,
+      kbobId: newValue?.value || "",
+      density: selectedMaterial?.density || 0,
+    });
+
+    // Reset density error when changing material
+    setDensityError("");
   };
 
   return (
@@ -146,19 +193,17 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
               newUnmodelledMaterial.kbobId
                 ? {
                     value: newUnmodelledMaterial.kbobId,
-                    label:
-                      kbobMaterials.find(
-                        (k) => k.id === newUnmodelledMaterial.kbobId
-                      )?.nameDE || "",
+                    label: `${selectedKbobMaterial?.nameDE} ${
+                      selectedKbobMaterial?.densityRange
+                        ? `(${selectedKbobMaterial.densityRange.min}-${selectedKbobMaterial.densityRange.max} kg/m³)`
+                        : selectedKbobMaterial?.density
+                        ? `(${selectedKbobMaterial.density} kg/m³)`
+                        : ""
+                    }`,
                   }
                 : null
             }
-            onChange={(newValue) =>
-              setNewUnmodelledMaterial({
-                ...newUnmodelledMaterial,
-                kbobId: newValue?.value || "",
-              })
-            }
+            onChange={handleKbobMaterialChange}
             options={
               typeof kbobMaterialOptions === "function"
                 ? kbobMaterialOptions("")
@@ -167,6 +212,36 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
             styles={selectStyles}
           />
         </Grid>
+
+        {/* Density field - only shown when KBOB material is selected */}
+        {selectedKbobMaterial?.densityRange && (
+          <Grid item xs={12} md={6}>
+            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+              Dichte (kg/m³)
+            </Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={
+                newUnmodelledMaterial.density || selectedKbobMaterial.density
+              }
+              onChange={handleDensityChange}
+              error={!!densityError}
+              helperText={
+                densityError ||
+                `Gültige Dichte: ${selectedKbobMaterial.densityRange.min} - ${selectedKbobMaterial.densityRange.max} kg/m³`
+              }
+              required
+              InputProps={{
+                inputProps: {
+                  min: selectedKbobMaterial.densityRange.min,
+                  max: selectedKbobMaterial.densityRange.max,
+                  step: "0.1",
+                },
+              }}
+            />
+          </Grid>
+        )}
       </Grid>
       <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
         <Button
@@ -177,7 +252,8 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
             !newUnmodelledMaterial.name ||
             !newUnmodelledMaterial.ebkp ||
             typeof newUnmodelledMaterial.volume !== "number" ||
-            newUnmodelledMaterial.volume <= 0
+            newUnmodelledMaterial.volume <= 0 ||
+            !!densityError
           }
         >
           Hinzufügen

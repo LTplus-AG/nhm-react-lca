@@ -24,7 +24,8 @@ export class LCACalculator {
     materials: Material[],
     matches: Record<string, string>,
     kbobMaterials: KbobMaterial[],
-    unmodelledMaterials: UnmodelledMaterial[] = []
+    unmodelledMaterials: UnmodelledMaterial[] = [],
+    materialDensities: Record<string, number> = {}
   ): ImpactResults {
     const results: ImpactResults = {
       gwp: 0,
@@ -39,8 +40,15 @@ export class LCACalculator {
 
     // Calculate impacts for modelled materials
     for (const material of materials) {
+      console.log("Processing material:", material);
       const kbobMaterial = kbobMaterialMap.get(matches[material.id]);
-      const impacts = this.calculateMaterialImpact(material, kbobMaterial);
+      console.log("Found KBOB material:", kbobMaterial);
+      const impacts = this.calculateMaterialImpact(
+        material,
+        kbobMaterial,
+        materialDensities
+      );
+      console.log("Calculated impacts:", impacts);
 
       if (impacts.gwp > 0 || impacts.ubp > 0 || impacts.penr > 0) {
         results.gwp += impacts.gwp;
@@ -56,7 +64,11 @@ export class LCACalculator {
     for (const material of unmodelledMaterials) {
       const kbobMaterial = kbobMaterialMap.get(material.kbobId);
       if (kbobMaterial) {
-        const impacts = this.calculateMaterialImpact(material, kbobMaterial);
+        const impacts = this.calculateMaterialImpact(
+          material,
+          kbobMaterial,
+          materialDensities
+        );
         results.gwp += impacts.gwp;
         results.ubp += impacts.ubp;
         results.penr += impacts.penr;
@@ -64,23 +76,36 @@ export class LCACalculator {
       }
     }
 
+    console.log("Final results:", results);
     return results;
   }
 
   calculateMaterialImpact(
     material: Material | UnmodelledMaterial | null,
-    kbobMaterial: KbobMaterial | undefined
+    kbobMaterial: KbobMaterial | undefined,
+    materialDensities?: Record<string, number>
   ): MaterialImpact {
     if (!material || !kbobMaterial) {
+      console.log("Missing material or KBOB material:", {
+        material,
+        kbobMaterial,
+      });
       return { gwp: 0, ubp: 0, penr: 0 };
     }
 
-    const mass = kbobMaterial.density
-      ? (typeof material.volume === "number" ? material.volume : 0) *
-        kbobMaterial.density
-      : typeof material.volume === "number"
-      ? material.volume
-      : 0;
+    // Use custom density if available, otherwise fallback to KBOB material density
+    const density = materialDensities?.[material.id] || kbobMaterial.density;
+    const volume = typeof material.volume === "number" ? material.volume : 0;
+    const mass = volume * density;
+
+    console.log("Calculating impact with:", {
+      density,
+      volume,
+      mass,
+      gwp: kbobMaterial.gwp,
+      ubp: kbobMaterial.ubp,
+      penr: kbobMaterial.penr,
+    });
 
     return {
       gwp: mass * kbobMaterial.gwp,
@@ -124,15 +149,20 @@ export class LCACalculator {
     matches: Record<string, string>,
     kbobMaterials: KbobMaterial[],
     outputFormat: OutputFormats,
-    unmodelledMaterials: UnmodelledMaterial[] = []
+    unmodelledMaterials: UnmodelledMaterial[] = [],
+    materialDensities: Record<string, number> = {},
+    directValue?: number
   ): string {
-    const results = this.calculateImpact(
-      materials,
-      matches,
-      kbobMaterials,
-      unmodelledMaterials
-    );
-    const value = results[outputFormat];
+    const value =
+      directValue !== undefined
+        ? directValue
+        : this.calculateImpact(
+            materials,
+            matches,
+            kbobMaterials,
+            unmodelledMaterials,
+            materialDensities
+          )[outputFormat.toLowerCase()];
 
     // Format in millions if value is greater than threshold
     if (value > LCACalculator.MILLION_THRESHOLD) {

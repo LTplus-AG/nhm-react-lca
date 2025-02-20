@@ -63,8 +63,8 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
     ...selectStyles,
     menu: (base: any) => ({
       ...base,
-      position: 'absolute',
-      width: '100%',
+      position: "absolute",
+      width: "100%",
       zIndex: 9999,
     }),
     menuPortal: (base: any) => ({
@@ -73,8 +73,8 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
     }),
     control: (base: any) => ({
       ...base,
-      borderRadius: '12px',
-      minHeight: '40px',
+      borderRadius: "12px",
+      minHeight: "40px",
     }),
   };
 
@@ -86,18 +86,18 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
       fullWidth
       PaperProps={{
         sx: {
-          minHeight: 'fit-content',
-          maxHeight: '90vh',
+          minHeight: "fit-content",
+          maxHeight: "90vh",
           m: 2,
           borderRadius: 2,
-          overflow: 'visible',
+          overflow: "visible",
         },
       }}
     >
       <DialogTitle sx={{ pb: 2, pt: 3, px: 3 }}>
         Material bearbeiten
       </DialogTitle>
-      <DialogContent sx={{ px: 3, pb: 3, overflow: 'visible' }}>
+      <DialogContent sx={{ px: 3, pb: 3, overflow: "visible" }}>
         <Grid container spacing={3}>
           <Grid item xs={12} md={8}>
             <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
@@ -114,10 +114,10 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
               }
               required
               size="medium"
-              sx={{ 
-                '& .MuiOutlinedInput-root': {
+              sx={{
+                "& .MuiOutlinedInput-root": {
                   borderRadius: 1.5,
-                }
+                },
               }}
             />
           </Grid>
@@ -137,10 +137,10 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
               onChange={handleVolumeChange}
               required
               size="medium"
-              sx={{ 
-                '& .MuiOutlinedInput-root': {
+              sx={{
+                "& .MuiOutlinedInput-root": {
                   borderRadius: 1.5,
-                }
+                },
               }}
             />
           </Grid>
@@ -182,8 +182,9 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
                   ? {
                       value: editedMaterial.kbobId,
                       label:
-                        kbobMaterials.find((k) => k.id === editedMaterial.kbobId)
-                          ?.nameDE || "",
+                        kbobMaterials.find(
+                          (k) => k.id === editedMaterial.kbobId
+                        )?.nameDE || "",
                     }
                   : null
               }
@@ -206,13 +207,13 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
         </Grid>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button 
+        <Button
           onClick={onClose}
           variant="outlined"
-          sx={{ 
+          sx={{
             borderRadius: 1.5,
-            textTransform: 'none',
-            minWidth: '100px'
+            textTransform: "none",
+            minWidth: "100px",
           }}
         >
           Abbrechen
@@ -226,10 +227,10 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
             typeof editedMaterial.volume !== "number" ||
             editedMaterial.volume <= 0
           }
-          sx={{ 
+          sx={{
             borderRadius: 1.5,
-            textTransform: 'none',
-            minWidth: '100px'
+            textTransform: "none",
+            minWidth: "100px",
           }}
         >
           Speichern

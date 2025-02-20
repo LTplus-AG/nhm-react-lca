@@ -116,6 +116,9 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [kbobError, setKbobError] = useState<string | null>(null);
   const [matches, setMatches] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState(0);
+  const [materialDensities, setMaterialDensities] = useState<
+    Record<string, number>
+  >({});
   const [newUnmodelledMaterial, setNewUnmodelledMaterial] =
     useState<UnmodelledMaterial>({
       id: "",
@@ -141,9 +144,15 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmationOpen, setConfirmationOpen] = useState(false);
-  const [impactPreview, setImpactPreview] = useState({
-    currentImpact: 0,
-    newImpact: 0,
+  const [impactPreview, setImpactPreview] = useState<{
+    currentImpact: string;
+    newImpact: string;
+    savings: string;
+    unit: string;
+  }>({
+    currentImpact: "",
+    newImpact: "",
+    savings: "",
     unit: "",
   });
   const [bulkMatchDialogOpen, setBulkMatchDialogOpen] = useState(false);
@@ -231,7 +240,7 @@ export default function LCACalculatorComponent(): JSX.Element {
         setKbobLoading(true);
         setKbobError(null);
         const materials = await fetchKBOBMaterials();
-        console.log("Loaded KBOB materials:", materials.length);
+        console.log("Loaded KBOB materials:", materials); // Add detailed logging
         setKbobMaterials(materials);
       } catch (error) {
         console.error("Error loading KBOB materials:", error);
@@ -341,12 +350,19 @@ export default function LCACalculatorComponent(): JSX.Element {
       ];
     }
 
-    const validMaterials = kbobMaterials.filter((kbob) => kbob.density > 0);
+    // Filter out materials with 0 density unless they have a density range
+    const validMaterials = kbobMaterials.filter(
+      (kbob) => kbob.densityRange || (!kbob.densityRange && kbob.density > 0)
+    );
 
-    // Create base options
+    // Create base options with density information
     const baseOptions = validMaterials.map((kbob) => ({
       value: kbob.id,
-      label: `${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
+      label: `${kbob.nameDE} ${
+        kbob.densityRange
+          ? `(${kbob.densityRange.min}-${kbob.densityRange.max} kg/m³)`
+          : `(${kbob.density} kg/m³)`
+      }`,
     }));
 
     // For modelled materials tab, add suggestions
@@ -356,14 +372,18 @@ export default function LCACalculatorComponent(): JSX.Element {
         if (!material) return baseOptions;
 
         // Get fuzzy matches for this material's name
-        const suggestions = getFuzzyMatches(material.name, validMaterials);
+        const suggestions = getFuzzyMatches(material.name, validMaterials, 1);
 
         if (suggestions.length === 0) return baseOptions;
 
         // Create suggestion options with custom formatting
         const suggestionOptions = suggestions.map((kbob) => ({
           value: kbob.id,
-          label: `✨ ${kbob.nameDE} (${kbob.density} ${kbob.unit})`,
+          label: `✨ ${kbob.nameDE} ${
+            kbob.densityRange
+              ? `(${kbob.densityRange.min}-${kbob.densityRange.max} kg/m³)`
+              : `(${kbob.density} kg/m³)`
+          }`,
           className: "suggestion-option",
         }));
 
@@ -452,45 +472,11 @@ export default function LCACalculatorComponent(): JSX.Element {
     [theme]
   );
 
-  const handleExportJSON = useCallback(() => {
-    // jsonOperations.handleExportJSON(
-    //   modelledMaterials,
-    //   unmodelledMaterials,
-    //   matches,
-    //   kbobMaterials
-    // );
-  }, [modelledMaterials, unmodelledMaterials, matches, kbobMaterials]);
-
-  const handleUploadClick = () => {
-    // fileInputRef.current?.click();
-  };
-
-  const handleFileUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    // const file = event.target.files?.[0];
-    // if (!file) return;
-    // try {
-    //   const modelledMaterials = await jsonOperations.handleFileUpload(
-    //     file,
-    //     (progress) => setUploadProgress(progress)
-    //   );
-    //   setModelledMaterials(modelledMaterials);
-    //   setUploadProgress(0);
-    //   if (fileInputRef.current) {
-    //     fileInputRef.current.value = "";
-    //   }
-    // } catch (error) {
-    //   console.error("Error processing JSON file:", error);
-    //   alert("Fehler beim Verarbeiten der JSON-Datei");
-    // }
-  };
-
-  // Update instructions array
   const instructions = [
     {
       label: "1. BIM-Daten laden",
-      description: "Importieren Sie Ihre Materialdaten aus dem BIM-Modell.",
+      description:
+        "Wählen Sie das Projekt um Materialdaten aus dem IFC Modell zu laden.",
     },
     {
       label: "2. KBOB-Referenzen zuordnen",
@@ -499,7 +485,8 @@ export default function LCACalculatorComponent(): JSX.Element {
     },
     {
       label: "3. Ökobilanz berechnen",
-      description: "Berechnen Sie die Umweltauswirkungen Ihres Projekts.",
+      description:
+        "Berechnen Sie die Umweltauswirkungen Ihres Projekts und senden Sie die Resultate ans Dashboard.",
     },
   ];
 
@@ -538,7 +525,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       await handleAbschliessen();
       setConfirmationOpen(false);
       // Show success message
-      // You might want to add a Snackbar or other notification here
     } catch (error) {
       console.error("Error updating LCA:", error);
       // Show error message
@@ -556,28 +542,56 @@ export default function LCACalculatorComponent(): JSX.Element {
       matches,
       kbobMaterials,
       outputFormat,
-      unmodelledMaterials
+      unmodelledMaterials,
+      materialDensities
     );
 
-    const previousTotal = parseFloat(currentTotal) * 1.2;
+    // Calculate previous total using the same formatting
+    const currentTotalValue =
+      parseFloat(currentTotal.replace(/[^\d.-]|Mio\./g, "")) *
+      (currentTotal.includes("Mio.") ? 1_000_000 : 1);
+    const previousTotalValue = currentTotalValue * 1.2;
+    const savingsValue = previousTotalValue - currentTotalValue;
 
     setImpactPreview({
-      currentImpact: previousTotal,
-      newImpact: parseFloat(currentTotal),
+      currentImpact: calculator.calculateGrandTotal(
+        matchedMaterials,
+        matches,
+        kbobMaterials,
+        outputFormat,
+        unmodelledMaterials,
+        materialDensities,
+        previousTotalValue
+      ),
+      newImpact: currentTotal,
+      savings: calculator.calculateGrandTotal(
+        matchedMaterials,
+        matches,
+        kbobMaterials,
+        outputFormat,
+        unmodelledMaterials,
+        materialDensities,
+        savingsValue
+      ),
       unit: OutputFormatUnits[outputFormat],
     });
     setConfirmationOpen(true);
   };
 
-  // Add function to get best matches for all unmatched materials
+  // Update the findBestMatchesForAll function
   const findBestMatchesForAll = useCallback(() => {
     const unmatched = modelledMaterials.filter((m) => !matches[m.id]);
     const suggestions: Record<string, KbobMaterial[]> = {};
 
+    // Filter valid materials (non-zero density or has density range)
+    const validMaterials = kbobMaterials.filter(
+      (kbob) => kbob.densityRange || (!kbob.densityRange && kbob.density > 0)
+    );
+
     unmatched.forEach((material) => {
       suggestions[material.id] = getFuzzyMatches(
         material.name,
-        kbobMaterials,
+        validMaterials,
         1
       );
     });
@@ -598,7 +612,7 @@ export default function LCACalculatorComponent(): JSX.Element {
     setBulkMatchDialogOpen(false);
   }, [matches, suggestedMatches]);
 
-  // Add bulk matching dialog component
+  // Update the bulk matching dialog content
   const bulkMatchingDialog = (
     <Dialog
       open={bulkMatchDialogOpen}
@@ -666,7 +680,9 @@ export default function LCACalculatorComponent(): JSX.Element {
                             {suggestion.nameDE}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {suggestion.density} {suggestion.unit}
+                            {suggestion.densityRange
+                              ? `${suggestion.densityRange.min}-${suggestion.densityRange.max} kg/m³`
+                              : `${suggestion.density} kg/m³`}
                           </Typography>
                         </Box>
                         <Button
@@ -710,114 +726,251 @@ export default function LCACalculatorComponent(): JSX.Element {
   );
 
   // Update the confirmation dialog content
+  const [confirmationStep, setConfirmationStep] = useState<1 | 2>(1);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+
   const confirmationContent = (
     <Dialog
       open={confirmationOpen}
-      onClose={() => setConfirmationOpen(false)}
+      onClose={() => {
+        setConfirmationOpen(false);
+        setConfirmationStep(1);
+      }}
       maxWidth="sm"
       fullWidth
     >
-      <DialogTitle sx={{ pb: 1 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Typography variant="h6">Ökobilanz berechnen</Typography>
+      {confirmationStep === 1 ? (
+        <>
+          <DialogTitle sx={{ pb: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="h6">Ökobilanz überprüfen</Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            <Box sx={{ py: 2 }}>
+              {modelledMaterials.filter((m) => !matches[m.id]).length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {modelledMaterials.filter((m) => !matches[m.id]).length} von{" "}
+                    {modelledMaterials.length} Materialien sind nicht zugeordnet
+                    und werden nicht berücksichtigt.
+                  </Typography>
+                  <Button
+                    onClick={findBestMatchesForAll}
+                    variant="text"
+                    color="primary"
+                    startIcon={
+                      <Box component="span" sx={{ fontSize: "1.1em" }}>
+                        ✨
+                      </Box>
+                    }
+                    sx={{ mt: 1, textTransform: "none" }}
+                  >
+                    Automatische Zuordnung vorschlagen
+                  </Button>
+                </Box>
+              )}
+              <Typography variant="body1" gutterBottom>
+                Ihre Materialzuordnungen führen zu folgenden Änderungen:
+              </Typography>
+              <Box
+                sx={{
+                  mt: 2,
+                  p: 2,
+                  bgcolor: "grey.50",
+                  borderRadius: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 1,
+                }}
+              >
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography color="text.secondary">
+                    Bisherige Emissionen:
+                  </Typography>
+                  <Typography fontWeight="medium">
+                    {impactPreview.currentImpact} {impactPreview.unit}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography color="text.secondary">Update:</Typography>
+                  <Typography fontWeight="medium" color="primary.main">
+                    {impactPreview.newImpact} {impactPreview.unit}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    mt: 1,
+                    pt: 1,
+                    borderTop: 1,
+                    borderColor: "divider",
+                    display: "flex",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Typography fontWeight="medium">
+                    Potentielle Einsparung:
+                  </Typography>
+                  <Typography fontWeight="bold" color="primary.main">
+                    {impactPreview.savings} {impactPreview.unit}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3 }}>
+            <Button
+              onClick={() => {
+                setConfirmationOpen(false);
+                setConfirmationStep(1);
+              }}
+              variant="outlined"
+              color="inherit"
+            >
+              Zurück
+            </Button>
+            <Button
+              onClick={() => setConfirmationStep(2)}
+              variant="contained"
+              color="primary"
+            >
+              Weiter
+            </Button>
+          </DialogActions>
+        </>
+      ) : (
+        <>
+          <DialogTitle sx={{ pb: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="h6">
+                Ökobilanz ans Dashboard senden
+              </Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            <Box sx={{ py: 2 }}>
+              <Typography variant="body1" paragraph>
+                Bitte beachten Sie:
+              </Typography>
+              <Box component="ul" sx={{ pl: 2, mb: 2 }}>
+                <Typography
+                  component="li"
+                  variant="body2"
+                  color="text.secondary"
+                  gutterBottom
+                >
+                  Die Ökobilanz wird im Nachhaltigkeitsmonitoring Dashboard
+                  aktualisiert
+                </Typography>
+                <Typography
+                  component="li"
+                  variant="body2"
+                  color="text.secondary"
+                  gutterBottom
+                >
+                  Änderungen sind nur durch neue Materialzuordnungen oder ein
+                  IFC-Update möglich
+                </Typography>
+                <Typography
+                  component="li"
+                  variant="body2"
+                  color="text.secondary"
+                >
+                  Die Aktualisierung im Dashboard kann einige Minuten dauern
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ mt: 2 }}>
+                Möchten Sie die neue Ökobilanz jetzt ans Dashboard senden?
+              </Typography>
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3 }}>
+            <Button
+              onClick={() => setConfirmationStep(1)}
+              variant="outlined"
+              color="inherit"
+            >
+              Zurück
+            </Button>
+            <Button
+              onClick={async () => {
+                await handleConfirmCalculation();
+                setShowSuccessMessage(true);
+              }}
+              variant="contained"
+              color="primary"
+            >
+              Ans Dashboard senden
+            </Button>
+          </DialogActions>
+        </>
+      )}
+    </Dialog>
+  );
+
+  // Add success message dialog
+  const successDialog = (
+    <Dialog
+      open={showSuccessMessage}
+      onClose={() => setShowSuccessMessage(false)}
+      maxWidth="sm"
+      fullWidth
+    >
+      <DialogTitle>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: "50%",
+              bgcolor: "success.light",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "success.dark",
+            }}
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+          </Box>
+          <Typography variant="h6">Erfolgreich gesendet</Typography>
         </Box>
       </DialogTitle>
       <DialogContent>
-        <Box sx={{ py: 2 }}>
-          {modelledMaterials.filter((m) => !matches[m.id]).length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="body2" color="text.secondary">
-                {modelledMaterials.filter((m) => !matches[m.id]).length} von{" "}
-                {modelledMaterials.length} Materialien sind nicht zugeordnet und
-                werden nicht berücksichtigt.
-              </Typography>
-              <Button
-                onClick={findBestMatchesForAll}
-                variant="text"
-                color="primary"
-                startIcon={
-                  <Box component="span" sx={{ fontSize: "1.1em" }}>
-                    ✨
-                  </Box>
-                }
-                sx={{ mt: 1, textTransform: "none" }}
-              >
-                Automatische Zuordnung vorschlagen
-              </Button>
-            </Box>
-          )}
-          <Typography variant="body1" gutterBottom>
-            Ihre Materialzuordnungen führen zu folgenden Änderungen:
-          </Typography>
-          <Box
-            sx={{
-              mt: 2,
-              p: 2,
-              bgcolor: "grey.50",
-              borderRadius: 1,
-              display: "flex",
-              flexDirection: "column",
-              gap: 1,
-            }}
-          >
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography color="text.secondary">
-                Bisherige Emissionen:
-              </Typography>
-              <Typography fontWeight="medium">
-                {impactPreview.currentImpact.toLocaleString()}{" "}
-                {impactPreview.unit}
-              </Typography>
-            </Box>
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography color="text.secondary">Update:</Typography>
-              <Typography fontWeight="medium" color="primary.main">
-                {impactPreview.newImpact.toLocaleString()} {impactPreview.unit}
-              </Typography>
-            </Box>
-            <Box
-              sx={{
-                mt: 1,
-                pt: 1,
-                borderTop: 1,
-                borderColor: "divider",
-                display: "flex",
-                justifyContent: "space-between",
-              }}
-            >
-              <Typography fontWeight="medium">
-                Potentielle Einsparung:
-              </Typography>
-              <Typography fontWeight="bold" color="primary.main">
-                {(
-                  impactPreview.currentImpact - impactPreview.newImpact
-                ).toLocaleString()}{" "}
-                {impactPreview.unit}
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
+        <Typography variant="body1" paragraph>
+          Die Ökobilanz wurde erfolgreich im Nachhaltigkeitsmonitoring
+          registriert.
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Das Dashboard wird in Kürze aktualisiert. Sie können diese Ansicht
+          jetzt schliessen.
+        </Typography>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>
         <Button
-          onClick={() => setConfirmationOpen(false)}
-          variant="outlined"
-          color="inherit"
-        >
-          Zurück
-        </Button>
-        <Button
-          onClick={handleConfirmCalculation}
+          onClick={() => {
+            setShowSuccessMessage(false);
+            setConfirmationOpen(false);
+            setConfirmationStep(1);
+          }}
           variant="contained"
           color="primary"
         >
-          Ökobilanz aktualisieren
+          Schliessen
         </Button>
       </DialogActions>
     </Dialog>
   );
 
-  // Update progress bar color
+  // Add progress bar component
   const progressBar = (
     <Box
       sx={{
@@ -829,40 +982,12 @@ export default function LCACalculatorComponent(): JSX.Element {
         bgcolor: theme.palette.primary.main,
         borderRadius: "9999px",
         height: "100%",
-        transition: "width 0.3s",
+        transition: "width 0.3s ease",
       }}
     />
   );
 
-  // Update the Output Format section
-  const outputFormatSection = (
-    <Box>
-      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-        Öko-Indikator
-      </Typography>
-      <Select
-        value={outputFormatOptions.find((opt) => opt.value === outputFormat)}
-        onChange={(newValue) =>
-          setOutputFormat(newValue?.value as OutputFormats)
-        }
-        options={outputFormatOptions}
-        styles={{
-          ...selectStyles,
-          control: (base) => ({
-            ...base,
-            backgroundColor: "white",
-            borderColor: theme.palette.divider,
-            "&:hover": {
-              borderColor: theme.palette.primary.main,
-            },
-          }),
-        }}
-        className="w-full"
-      />
-    </Box>
-  );
-
-  // Update the calculation button section
+  // Update the calculation button text
   const calculationButton = (
     <Box sx={{ mt: 3 }}>
       {modelledMaterials.filter((m) => matches[m.id]).length === 0 ? (
@@ -884,7 +1009,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                 textTransform: "none",
                 bgcolor: "background.paper",
                 "&:hover": {
-                  bgcolor: "background.paper", // Prevent hover color change
+                  bgcolor: "background.paper",
                 },
               }}
             >
@@ -908,25 +1033,11 @@ export default function LCACalculatorComponent(): JSX.Element {
           boxShadow: "none",
           bgcolor: "primary.main",
           "&:hover": {
-            bgcolor: "primary.main", // Prevent hover color change
+            bgcolor: "primary.main",
           },
         }}
       >
-        Ökobilanz berechnen
-        {modelledMaterials.filter((m) => !matches[m.id]).length > 0 && (
-          <Typography
-            component="span"
-            variant="caption"
-            sx={{
-              ml: 1,
-              opacity: 0.7,
-              fontWeight: "normal",
-            }}
-          >
-            ({modelledMaterials.filter((m) => matches[m.id]).length} von{" "}
-            {modelledMaterials.length})
-          </Typography>
-        )}
+        Ökobilanz ans Dashboard senden
       </Button>
     </Box>
   );
@@ -1005,6 +1116,17 @@ export default function LCACalculatorComponent(): JSX.Element {
                   borderRadius: 1,
                 }}
               >
+                {/* Add debug logging */}
+                {console.log("Calculating total with:", {
+                  matchedMaterials: modelledMaterials.filter(
+                    (m) => matches[m.id]
+                  ),
+                  matches,
+                  kbobMaterials,
+                  outputFormat,
+                  unmodelledMaterials,
+                  materialDensities,
+                })}
                 <Typography
                   variant="h4"
                   component="p"
@@ -1012,11 +1134,12 @@ export default function LCACalculatorComponent(): JSX.Element {
                   fontWeight="bold"
                 >
                   {calculator.calculateGrandTotal(
-                    modelledMaterials,
+                    modelledMaterials.filter((m) => matches[m.id]),
                     matches,
                     kbobMaterials,
                     outputFormat,
-                    unmodelledMaterials
+                    unmodelledMaterials,
+                    materialDensities
                   )}
                   <Typography
                     component="span"
@@ -1029,7 +1152,32 @@ export default function LCACalculatorComponent(): JSX.Element {
               </Box>
 
               {/* Output Format */}
-              {outputFormatSection}
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  Öko-Indikator
+                </Typography>
+                <Select
+                  value={outputFormatOptions.find(
+                    (opt) => opt.value === outputFormat
+                  )}
+                  onChange={(newValue) =>
+                    setOutputFormat(newValue?.value as OutputFormats)
+                  }
+                  options={outputFormatOptions}
+                  styles={{
+                    ...selectStyles,
+                    control: (base) => ({
+                      ...base,
+                      backgroundColor: "white",
+                      borderColor: theme.palette.divider,
+                      "&:hover": {
+                        borderColor: theme.palette.primary.main,
+                      },
+                    }),
+                  }}
+                  className="w-full"
+                />
+              </Box>
             </Box>
 
             {/* Separator */}
@@ -1081,6 +1229,7 @@ export default function LCACalculatorComponent(): JSX.Element {
         )}
       </Paper>
       {confirmationContent}
+      {successDialog}
     </>
   );
 
@@ -1144,6 +1293,14 @@ export default function LCACalculatorComponent(): JSX.Element {
         setLoading(false);
       }
     }, 1000);
+  };
+
+  // Add handler for density updates
+  const handleDensityUpdate = (materialId: string, newDensity: number) => {
+    setMaterialDensities((prev) => ({
+      ...prev,
+      [materialId]: newDensity,
+    }));
   };
 
   return (
@@ -1215,6 +1372,9 @@ export default function LCACalculatorComponent(): JSX.Element {
               kbobMaterialOptions={kbobMaterialOptions}
               selectStyles={selectStyles}
               sortMaterials={(materials) => sortMaterials(materials, sortBy)}
+              outputFormat={outputFormat}
+              handleDensityUpdate={handleDensityUpdate}
+              materialDensities={materialDensities}
             />
           ) : (
             <>
