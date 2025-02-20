@@ -38,8 +38,19 @@ function parseDensity(densityStr: string | number | null | undefined): number {
   return isNaN(numericValue) ? 0 : numericValue;
 }
 
-// Use the Vite dev server URL since it proxies to the backend
-const API_BASE_URL = import.meta.env.DEV ? "http://localhost:5173" : "";
+// Compute the API base URL using a runtime value if available
+const runtimeApiUrl =
+  (window as any).__env?.API_URL ||
+  (window as any).__env?.VITE_API_URL ||
+  "";
+const buildtimeApiUrl = import.meta.env.VITE_API_URL || "";
+
+const API_BASE_URL =
+  runtimeApiUrl && runtimeApiUrl.trim() !== ""
+    ? runtimeApiUrl.trim()
+    : buildtimeApiUrl && buildtimeApiUrl.trim() !== ""
+    ? buildtimeApiUrl.trim()
+    : "http://localhost:5000";
 
 export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
   try {

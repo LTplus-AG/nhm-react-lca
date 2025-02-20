@@ -78,10 +78,29 @@ app.get("/api/ifc-results/:projectId/:extra?", async (req, res) => {
   }
 });
 
-// New endpoint to update material mappings via IFC parsing result
-app.post("/api/update-material-mappings", (req, res) => {
-  console.log("Received update-material-mappings payload:", req.body);
-  res.json({ message: "Material mappings updated successfully" });
+// Update material mappings endpoint
+app.post("/api/update-material-mappings", async (req, res) => {
+  try {
+    console.log("Received update-material-mappings payload:", req.body);
+
+    const response = await axios.post(
+      `${PYTHON_BACKEND_URL}/api/update-material-mappings`,
+      req.body,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error("Error forwarding material mappings update:", error);
+    res.status(error.response?.status || 500).json({
+      error: "Failed to update material mappings",
+      details: error.message,
+    });
+  }
 });
 
 // GET /backend/kbob endpoint - reverted to working version

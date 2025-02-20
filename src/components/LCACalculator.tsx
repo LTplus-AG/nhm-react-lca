@@ -41,6 +41,9 @@ import MaterialList from "./LCACalculator/MaterialList";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
 
+// Add import at the top
+import { mockProjectData } from "../data/mockProjectData";
+
 const calculator = new LCACalculator();
 
 interface MaterialOption {
@@ -86,6 +89,20 @@ interface IFCResult {
 
 // Update API configuration to use import.meta.env
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+// Add new interface for project options
+interface ProjectOption {
+  value: string;
+  label: string;
+}
+
+// Add project options constant
+const PROJECT_OPTIONS: ProjectOption[] = [
+  {
+    value: "juch-areal",
+    label: "Recyclingzentrum Juch-Areal",
+  },
+];
 
 export default function LCACalculatorComponent(): JSX.Element {
   const theme = useTheme();
@@ -134,8 +151,79 @@ export default function LCACalculatorComponent(): JSX.Element {
     Record<string, KbobMaterial[]>
   >({});
 
-  // Add hardcoded project ID constant
-  const DEMO_PROJECT_ID = "juch-areal";
+  // Add new state for selected project
+  const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(
+    null
+  );
+
+  // Remove DEMO_PROJECT_ID constant since we'll use selectedProject instead
+
+  // Modify the useEffect for fetching IFC data to depend on selectedProject
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!selectedProject?.value) {
+        // Reset state when no project is selected
+        setIfcResult({
+          projectId: "",
+          ifcData: { materials: [] },
+          materialMappings: {},
+        });
+        setModelledMaterials([]);
+        return;
+      }
+
+      try {
+        // Instead of API call, use mock data
+        const mockResponse = mockProjectData[selectedProject.value];
+
+        if (!mockResponse) {
+          console.log("No mock data found for project:", selectedProject.value);
+          setIfcResult({
+            projectId: selectedProject.value,
+            ifcData: { materials: [] },
+            materialMappings: {},
+          });
+          return;
+        }
+
+        console.log("Mock API response:", mockResponse);
+
+        const processedResult = {
+          projectId: selectedProject.value,
+          ifcData: {
+            materials: Array.isArray(mockResponse.ifcData?.materials)
+              ? mockResponse.ifcData.materials
+              : [],
+          },
+          materialMappings: mockResponse.materialMappings || {},
+        };
+
+        console.log("Setting processed IFC result:", processedResult);
+        setIfcResult(processedResult);
+
+        if (Array.isArray(mockResponse.ifcData?.materials)) {
+          const materials = mockResponse.ifcData.materials.map((material) => ({
+            id: material.name,
+            name: material.name,
+            volume: material.volume,
+            ebkp: "",
+            kbobId: mockResponse.materialMappings?.[material.name] || "",
+          }));
+          console.log("Setting modelled materials:", materials);
+          setModelledMaterials(materials);
+        }
+      } catch (error) {
+        console.error("Error processing mock data:", error);
+        setIfcResult({
+          projectId: selectedProject.value,
+          ifcData: { materials: [] },
+          materialMappings: {},
+        });
+      }
+    };
+
+    fetchData();
+  }, [selectedProject]); // Changed dependency from DEMO_PROJECT_ID to selectedProject
 
   useEffect(() => {
     const loadKBOBMaterials = async () => {
@@ -168,105 +256,6 @@ export default function LCACalculatorComponent(): JSX.Element {
     }
     setSidebarContainer(container);
   }, []);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      // Create axios instance with configuration
-      const axiosInstance = axios.create({
-        timeout: 30000, // 30 second timeout
-        withCredentials: true,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      try {
-        const apiUrl = `${API_BASE_URL}/api/ifc-results/${DEMO_PROJECT_ID}`;
-        console.log("Attempting API call to:", apiUrl);
-
-        const response = await axiosInstance.get(apiUrl);
-        console.log("Raw API response:", response.data);
-
-        const defaultResult = {
-          projectId: DEMO_PROJECT_ID,
-          ifcData: { materials: [] },
-          materialMappings: {},
-        };
-
-        if (typeof response.data !== "object" || response.data === null) {
-          console.log("Invalid data received, using default:", defaultResult);
-          setIfcResult(defaultResult);
-          return;
-        }
-
-        const processedResult = {
-          ...defaultResult,
-          ...response.data,
-          ifcData: {
-            materials: Array.isArray(response.data.ifcData?.materials)
-              ? response.data.ifcData.materials
-              : [],
-          },
-          materialMappings: response.data.materialMappings || {},
-        };
-
-        console.log("Setting processed IFC result:", processedResult);
-        setIfcResult(processedResult);
-
-        // Update modelled materials based on IFC data
-        if (Array.isArray(response.data.ifcData?.materials)) {
-          const materials = response.data.ifcData.materials.map(
-            (material: any) => ({
-              id: material.name,
-              name: material.name,
-              volume: material.volume,
-              ebkp: "", // Add if available in your data
-              kbobId: response.data.materialMappings?.[material.name] || "",
-            })
-          );
-          console.log("Setting modelled materials:", materials);
-          setModelledMaterials(materials);
-        }
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          console.error("Axios error details:", {
-            message: error.message,
-            code: error.code,
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            url: error.config?.url,
-          });
-
-          // Handle specific error cases
-          if (error.code === "ECONNABORTED") {
-            console.error("Request timed out - check API server status");
-          } else if (error.response?.status === 404) {
-            console.error("IFC results not found for project");
-          } else if (error.response?.status === 403) {
-            console.error("Access forbidden - check authentication");
-          }
-        } else {
-          console.error("Non-axios error:", error);
-        }
-
-        // Set default state on error
-        setIfcResult({
-          projectId: DEMO_PROJECT_ID,
-          ifcData: { materials: [] },
-          materialMappings: {},
-        });
-      }
-    };
-
-    fetchData();
-
-    // Cleanup function
-    return () => {
-      // Cancel any pending requests if component unmounts
-      const source = axios.CancelToken.source();
-      source.cancel("Component unmounted");
-    };
-  }, [DEMO_PROJECT_ID]); // Add any other dependencies
 
   useEffect(() => {
     if (ifcResult && ifcResult.materialMappings) {
@@ -891,7 +880,13 @@ export default function LCACalculatorComponent(): JSX.Element {
                   ✨
                 </Box>
               }
-              sx={{ textTransform: "none" }}
+              sx={{
+                textTransform: "none",
+                bgcolor: "background.paper",
+                "&:hover": {
+                  bgcolor: "background.paper", // Prevent hover color change
+                },
+              }}
             >
               Automatische Zuordnung vorschlagen
             </Button>
@@ -911,8 +906,9 @@ export default function LCACalculatorComponent(): JSX.Element {
           fontWeight: 500,
           letterSpacing: "0.3px",
           boxShadow: "none",
+          bgcolor: "primary.main",
           "&:hover": {
-            boxShadow: "none",
+            bgcolor: "primary.main", // Prevent hover color change
           },
         }}
       >
@@ -932,11 +928,6 @@ export default function LCACalculatorComponent(): JSX.Element {
           </Typography>
         )}
       </Button>
-      {loading && (
-        <Box sx={{ mt: 1, display: "flex", justifyContent: "center" }}>
-          <CircularProgress size={24} />
-        </Box>
-      )}
     </Box>
   );
 
@@ -954,93 +945,27 @@ export default function LCACalculatorComponent(): JSX.Element {
           "& > .MuiBox-root": { width: "100%" },
         }}
       >
-        {/* Combined Top Section */}
+        {/* Project Selection */}
         <Box sx={{ mb: 3 }}>
-          {/* Total Result and Output Format Group */}
-          <Box sx={{ mb: 2 }}>
-            {/* Total Result */}
-            <Box
-              sx={{
-                p: 2,
-                mb: 1.5,
-                background: "linear-gradient(to right top, #F1D900, #fff176)",
-                borderRadius: 1,
-              }}
-            >
-              <Typography
-                variant="h4"
-                component="p"
-                color="common.black"
-                fontWeight="bold"
-              >
-                {calculator.calculateGrandTotal(
-                  modelledMaterials,
-                  matches,
-                  kbobMaterials,
-                  outputFormat,
-                  unmodelledMaterials
-                )}
-                <Typography
-                  component="span"
-                  variant="h6"
-                  sx={{ ml: 1, opacity: 0.7, fontWeight: "normal" }}
-                >
-                  {OutputFormatUnits[outputFormat]}
-                </Typography>
-              </Typography>
-            </Box>
-
-            {/* Output Format */}
-            {outputFormatSection}
-          </Box>
-
-          {/* Separator */}
-          <Box
-            sx={{
-              height: "1px",
-              bgcolor: "divider",
-              my: 2,
-              width: "100%",
-            }}
+          <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+            Projekt auswählen
+          </Typography>
+          <Select
+            value={selectedProject}
+            onChange={(newValue) =>
+              setSelectedProject(newValue as ProjectOption)
+            }
+            options={PROJECT_OPTIONS}
+            styles={selectStyles}
+            placeholder="Wählen Sie ein Projekt..."
+            isClearable
           />
-
-          {/* Progress */}
-          <Box sx={{ pt: 1 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
-              Fortschritt
-            </Typography>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Modellierte Materialien: {modelledMaterials.length}
-                </Typography>
-                <Box
-                  sx={{
-                    width: "100%",
-                    bgcolor: theme.palette.grey[100],
-                    borderRadius: "9999px",
-                    height: "8px",
-                    mt: 0.5,
-                  }}
-                >
-                  {progressBar}
-                </Box>
-              </Box>
-              <Typography variant="caption" color="text.secondary">
-                {modelledMaterials.filter((m) => matches[m.id]).length} von{" "}
-                {modelledMaterials.length} zugeordnet
-              </Typography>
-            </Box>
-          </Box>
-
-          {/* Calculation Button */}
-          {calculationButton}
         </Box>
 
-        {/* Process Steps Section */}
-        <Box>
+        {/* Process Steps Section - Always visible */}
+        <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-            Prozess
+            Anleitung
           </Typography>
           <Stepper
             orientation="vertical"
@@ -1065,6 +990,95 @@ export default function LCACalculatorComponent(): JSX.Element {
             ))}
           </Stepper>
         </Box>
+
+        {/* Project-dependent content */}
+        {selectedProject ? (
+          <Box sx={{ mb: 3 }}>
+            {/* Total Result and Output Format Group */}
+            <Box sx={{ mb: 2 }}>
+              {/* Total Result */}
+              <Box
+                sx={{
+                  p: 2,
+                  mb: 1.5,
+                  background: "linear-gradient(to right top, #F1D900, #fff176)",
+                  borderRadius: 1,
+                }}
+              >
+                <Typography
+                  variant="h4"
+                  component="p"
+                  color="common.black"
+                  fontWeight="bold"
+                >
+                  {calculator.calculateGrandTotal(
+                    modelledMaterials,
+                    matches,
+                    kbobMaterials,
+                    outputFormat,
+                    unmodelledMaterials
+                  )}
+                  <Typography
+                    component="span"
+                    variant="h6"
+                    sx={{ ml: 1, opacity: 0.7, fontWeight: "normal" }}
+                  >
+                    {OutputFormatUnits[outputFormat]}
+                  </Typography>
+                </Typography>
+              </Box>
+
+              {/* Output Format */}
+              {outputFormatSection}
+            </Box>
+
+            {/* Separator */}
+            <Box
+              sx={{
+                height: "1px",
+                bgcolor: "divider",
+                my: 2,
+                width: "100%",
+              }}
+            />
+
+            {/* Progress */}
+            <Box sx={{ pt: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                Fortschritt
+              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Modellierte Materialien: {modelledMaterials.length}
+                  </Typography>
+                  <Box
+                    sx={{
+                      width: "100%",
+                      bgcolor: theme.palette.grey[100],
+                      borderRadius: "9999px",
+                      height: "8px",
+                      mt: 0.5,
+                    }}
+                  >
+                    {progressBar}
+                  </Box>
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  {modelledMaterials.filter((m) => matches[m.id]).length} von{" "}
+                  {modelledMaterials.length} zugeordnet
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Calculation Button */}
+            {calculationButton}
+          </Box>
+        ) : (
+          <Typography color="text.secondary" align="center">
+            Bitte wählen Sie ein Projekt aus, um fortzufahren.
+          </Typography>
+        )}
       </Paper>
       {confirmationContent}
     </>
@@ -1085,25 +1099,51 @@ export default function LCACalculatorComponent(): JSX.Element {
     setEditingMaterial(null);
   };
 
-  // Handler for the 'Abschliessen' button click
+  // Replace handleAbschliessen with mock version
   const handleAbschliessen = () => {
-    setLoading(true);
-    const payload = {
-      projectId: DEMO_PROJECT_ID,
-      materialMappings: matches,
-    };
+    if (!selectedProject?.value) return;
 
-    axios
-      .post(`${API_BASE_URL}/api/update-material-mappings`, payload)
-      .then((response) => {
+    setLoading(true);
+    // Simulate API delay
+    setTimeout(() => {
+      try {
+        // Update local mock data
+        if (mockProjectData[selectedProject.value]) {
+          mockProjectData[selectedProject.value].materialMappings = matches;
+        }
         setMessage("Material mappings updated successfully!");
-        setLoading(false);
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error("Error updating material mappings:", error);
         setMessage("Error updating material mappings");
+      } finally {
         setLoading(false);
-      });
+      }
+    }, 1000);
+  };
+
+  // Remove or update handleMaterialMappingUpdate to use mock data
+  const handleMaterialMappingUpdate = async (
+    mappings: Record<string, string>
+  ) => {
+    setLoading(true);
+    setTimeout(() => {
+      try {
+        if (mockProjectData[ifcResult.projectId]) {
+          mockProjectData[ifcResult.projectId].materialMappings = mappings;
+          setMessage("Material mappings updated successfully");
+          // Update local state
+          setIfcResult((prev) => ({
+            ...prev,
+            materialMappings: mappings,
+          }));
+        }
+      } catch (error) {
+        console.error("Error updating material mappings:", error);
+        setMessage("Error updating material mappings");
+      } finally {
+        setLoading(false);
+      }
+    }, 1000);
   };
 
   return (
@@ -1220,7 +1260,7 @@ export default function LCACalculatorComponent(): JSX.Element {
           borderRadius: 2,
           overflow: "visible",
           bgcolor: "background.paper",
-          transform: "translate3d(0,0,0)", // Force GPU acceleration
+          transform: "translate3d(0,0,0)",
           willChange: "transform",
           transition: "transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
           cursor: "default",
@@ -1230,6 +1270,8 @@ export default function LCACalculatorComponent(): JSX.Element {
               opacity: 1,
               transform: "translate3d(0,0,0)",
               visibility: "visible",
+              transition:
+                "transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s",
             },
           },
         }}
@@ -1251,6 +1293,8 @@ export default function LCACalculatorComponent(): JSX.Element {
             borderTopLeftRadius: 2,
             borderTopRightRadius: 2,
             boxShadow: theme.shadows[8],
+            border: 1,
+            borderColor: "primary.main",
             "&::before": {
               content: '""',
               position: "absolute",
@@ -1275,8 +1319,10 @@ export default function LCACalculatorComponent(): JSX.Element {
         <Box
           sx={{
             p: 1.5,
-            bgcolor: "primary.main",
-            color: "primary.contrastText",
+            bgcolor: "background.paper",
+            border: 1,
+            borderColor: "primary.main",
+            color: "primary.main",
             display: "flex",
             alignItems: "center",
             gap: 1,
@@ -1298,7 +1344,7 @@ export default function LCACalculatorComponent(): JSX.Element {
               sx={{
                 minWidth: "auto",
                 p: 0.5,
-                color: "primary.contrastText",
+                color: "primary.main",
                 opacity: 0.8,
                 "&:hover": { opacity: 1 },
               }}
@@ -1320,7 +1366,7 @@ export default function LCACalculatorComponent(): JSX.Element {
               sx={{
                 minWidth: "auto",
                 p: 0.5,
-                color: "primary.contrastText",
+                color: "primary.main",
                 opacity: 0.8,
                 "&:hover": { opacity: 1 },
               }}
