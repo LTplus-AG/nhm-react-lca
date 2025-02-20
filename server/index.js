@@ -1,3 +1,6 @@
+// Import and configure dotenv at the top
+require('dotenv').config();
+
 // Import necessary packages
 const express = require("express");
 const path = require("path");
@@ -13,17 +16,39 @@ const PORT = process.env.PORT || 3000;
 // Create database connection - simplified to match working version
 const db = new duckdb.Database("kbob_materials.db");
 
-// Enable JSON parsing for POST requests
-app.use(express.json());
+// Configure allowed origins based on environment variables
+const allowedOrigin =
+  process.env.ALLOWED_ORIGIN ||
+  (process.env.NODE_ENV === "production"
+    ? "https://host-server.fastbim5.eu"
+    : "http://localhost:5173");
 
-// Enable CORS for all routes
+// Log the configuration
+console.log("Server configuration:", {
+  nodeEnv: process.env.NODE_ENV,
+  allowedOrigin,
+  port: PORT
+});
+
+// Enable CORS with configured origin and credentials
 app.use(
   cors({
-    origin: "http://localhost:5173", // Your Vite dev server
-    methods: ["GET", "POST"],
+    origin: allowedOrigin,
+    methods: ["GET", "POST", "OPTIONS"],
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
   })
 );
+
+// Add CORS pre-flight handling
+app.options('*', cors({
+  origin: allowedOrigin,
+  credentials: true,
+  optionsSuccessStatus: 200
+}));
+
+// Enable JSON parsing for POST requests
+app.use(express.json());
 
 // Add logging middleware
 app.use((req, res, next) => {
@@ -184,7 +209,7 @@ app.use((err, req, res, next) => {
 const server = app
   .listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`CORS enabled for http://localhost:5173`);
+    console.log(`CORS enabled for ${allowedOrigin}`);
   })
   .on("error", (err) => {
     console.error("Failed to start server:", err);

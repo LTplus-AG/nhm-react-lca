@@ -38,19 +38,10 @@ function parseDensity(densityStr: string | number | null | undefined): number {
   return isNaN(numericValue) ? 0 : numericValue;
 }
 
-// Compute the API base URL using a runtime value if available
-const runtimeApiUrl =
-  (window as any).__env?.API_URL ||
-  (window as any).__env?.VITE_API_URL ||
-  "";
-const buildtimeApiUrl = import.meta.env.VITE_API_URL || "";
-
+// Use environment variables for API configuration
 const API_BASE_URL =
-  runtimeApiUrl && runtimeApiUrl.trim() !== ""
-    ? runtimeApiUrl.trim()
-    : buildtimeApiUrl && buildtimeApiUrl.trim() !== ""
-    ? buildtimeApiUrl.trim()
-    : "http://localhost:5000";
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? "http://localhost:5173" : "");
 
 export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
   try {
@@ -65,6 +56,7 @@ export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
         "Content-Type": "application/json",
       },
       credentials: "include",
+      mode: "cors"
     });
 
     console.log("Response status:", response.status);
