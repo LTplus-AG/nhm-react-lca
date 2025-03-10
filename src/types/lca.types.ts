@@ -15,7 +15,7 @@ export const OutputFormatLabels: Record<OutputFormats, string> = {
 export const OutputFormatUnits: Record<OutputFormats, string> = {
   [OutputFormats.GWP]: "kg CO₂-eq",
   [OutputFormats.UBP]: "UBP",
-  [OutputFormats.PENR]: "MJ",
+  [OutputFormats.PENR]: "kWh",
 };
 
 // Material types and interfaces

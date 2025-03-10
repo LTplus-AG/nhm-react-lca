@@ -11,22 +11,39 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Tooltip,
+  Chip,
 } from "@mui/material";
 import Select from "react-select";
 import { Material, KbobMaterial, OutputFormats } from "../../types/lca.types";
 import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
 
-interface ModelledMaterialListProps {
+export interface MaterialOption {
+  value: string;
+  label: string;
+  isDisabled?: boolean;
+  className?: string;
+}
+
+export interface MaterialOptionGroup {
+  label: string;
+  options: MaterialOption[];
+}
+
+export interface ModelledMaterialListProps {
   modelledMaterials: Material[];
   kbobMaterials: KbobMaterial[];
   matches: Record<string, string>;
-  handleMaterialSelect: (selectedOption: any, materialId: string) => void;
-  kbobMaterialOptions: any;
+  setMatches: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  kbobMaterialOptions:
+    | MaterialOption[]
+    | ((materialId: string) => MaterialOption[] | MaterialOptionGroup[]);
   selectStyles: any;
-  sortMaterials: (materials: Material[]) => Material[];
-  outputFormat: OutputFormats;
-  handleDensityUpdate: (materialId: string, newDensity: number) => void;
-  materialDensities: Record<string, number>;
+  onDeleteMaterial: (id: string) => void;
+  handleDensityUpdate?: (materialId: string, newDensity: number) => void;
+  materialDensities?: Record<string, number>;
+  outputFormat?: OutputFormats;
 }
 
 interface DensityDialogProps {
@@ -120,15 +137,53 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
   modelledMaterials,
   kbobMaterials,
   matches,
-  handleMaterialSelect,
+  setMatches,
   kbobMaterialOptions,
   selectStyles,
-  sortMaterials,
-  outputFormat,
+  onDeleteMaterial,
   handleDensityUpdate,
-  materialDensities,
+  materialDensities = {},
+  outputFormat = OutputFormats.GWP,
 }) => {
   const [editingDensity, setEditingDensity] = useState<string | null>(null);
+
+  const getMatchedOption = (materialId: string) => {
+    const matchId = matches[materialId];
+    if (!matchId) return null;
+
+    // If kbobMaterialOptions is a function, get the options for this material
+    const options =
+      typeof kbobMaterialOptions === "function"
+        ? kbobMaterialOptions(materialId)
+        : kbobMaterialOptions;
+
+    // Handle both flat options and grouped options
+    if (Array.isArray(options) && options.length > 0) {
+      // Check if this is a group array
+      if ("options" in options[0]) {
+        // It's a group array, search through all groups
+        for (const group of options as MaterialOptionGroup[]) {
+          const option = group.options.find((opt) => opt.value === matchId);
+          if (option) return option;
+        }
+        return null;
+      } else {
+        // It's a flat array
+        return (
+          (options as MaterialOption[]).find((opt) => opt.value === matchId) ||
+          null
+        );
+      }
+    }
+
+    return null;
+  };
+
+  const getOptionsForMaterial = (materialId: string) => {
+    return typeof kbobMaterialOptions === "function"
+      ? kbobMaterialOptions(materialId)
+      : kbobMaterialOptions;
+  };
 
   const getEmissionValue = (
     material: Material,
@@ -158,60 +213,92 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
       case OutputFormats.UBP:
         return "UBP";
       case OutputFormats.PENR:
-        return "MJ";
+        return "kWh";
       default:
         return "";
     }
   };
 
-  return (
-    <Grid container spacing={2}>
-      {sortMaterials(modelledMaterials).map((material, index) => {
-        const kbobMaterial = kbobMaterials.find(
-          (k) => k.id === matches[material.id]
-        );
-        const hasDensityRange = kbobMaterial?.densityRange;
-        const currentDensity =
-          materialDensities[material.id] || kbobMaterial?.density || 0;
-        const emissionValue = getEmissionValue(material, kbobMaterial);
+  const getMatchedKbobMaterial = (materialId: string) => {
+    const matchId = matches[materialId];
+    if (!matchId) return null;
+    return kbobMaterials.find((m) => m.id === matchId) || null;
+  };
 
-        return (
-          <Grid item xs={12} lg={6} key={material.id || index}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 3,
-                border: 1,
-                borderColor: matches[material.id] ? "info.light" : "divider",
-                borderRadius: 2,
-                height: "100%",
-                display: "flex",
-                flexDirection: "column",
-                bgcolor: matches[material.id]
-                  ? "info.lighter"
-                  : "background.paper",
-                "&:hover": {
-                  boxShadow: (theme) => theme.shadows[4],
-                  borderColor: "transparent",
-                },
-                transition: "all 0.3s ease",
-              }}
-            >
-              {/* Material Name */}
-              <Typography
-                variant="h6"
+  return (
+    <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        {
+          modelledMaterials.filter((material) => {
+            const matchId = matches[material.id];
+            return (
+              matchId &&
+              matchId.trim() !== "" &&
+              kbobMaterials.some((m) => m.id === matchId)
+            );
+          }).length
+        }{" "}
+        von {modelledMaterials.length} Materialien zugeordnet
+      </Typography>
+
+      {/* Card Grid Layout */}
+      <Grid container spacing={2}>
+        {modelledMaterials.map((material) => {
+          const matchedKbobMaterial = getMatchedKbobMaterial(material.id);
+          const emissionValue = matchedKbobMaterial
+            ? getEmissionValue(material, matchedKbobMaterial)
+            : null;
+
+          return (
+            <Grid item xs={12} sm={6} md={4} key={material.id}>
+              <Paper
+                elevation={0}
                 sx={{
-                  fontWeight: 600,
-                  color: "text.primary",
-                  lineHeight: 1.3,
-                  mb: 2,
+                  p: 2,
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  "&:hover": {
+                    boxShadow: (theme) => theme.shadows[2],
+                    borderColor: "transparent",
+                  },
+                  transition: "all 0.3s ease",
                 }}
               >
-                {material.name}
-              </Typography>
+                {/* Header with Material Name and Actions */}
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    mb: 2,
+                  }}
+                >
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      fontWeight: 600,
+                      color: "text.primary",
+                      fontSize: { xs: "1rem", sm: "1.1rem" },
+                    }}
+                  >
+                    {material.name}
+                  </Typography>
 
-              {/* Info Badges */}
-              <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 3 }}>
+                  <Tooltip title="Löschen">
+                    <IconButton
+                      onClick={() => onDeleteMaterial(material.id)}
+                      size="small"
+                      color="default"
+                    >
+                      <DeleteIcon fontSize="small" sx={{ color: "grey.500" }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+
                 {/* Volume Badge */}
                 <Box
                   sx={{
@@ -222,7 +309,8 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
                     px: 1.5,
                     py: 0.75,
                     borderRadius: 1.5,
-                    width: "fit-content",
+                    mb: 2,
+                    alignSelf: "flex-start",
                   }}
                 >
                   <svg
@@ -244,175 +332,88 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
                     sx={{ fontWeight: 600, lineHeight: 1 }}
                   >
                     {typeof material.volume === "number"
-                      ? material.volume
-                          .toLocaleString(undefined, {
-                            minimumFractionDigits: 1,
-                            maximumFractionDigits: 1,
-                          })
-                          .replace(/\.?0+$/, "")
-                      : "0.0"}{" "}
+                      ? material.volume.toFixed(2)
+                      : "0.00"}{" "}
                     m³
                   </Typography>
                 </Box>
 
-                {/* Density Badge */}
-                {kbobMaterial && (
-                  <Box
-                    sx={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      bgcolor: "info.lighter",
-                      color: "info.dark",
-                      px: 1.5,
-                      py: 0.75,
-                      borderRadius: 1.5,
-                      width: "fit-content",
-                      position: "relative",
+                {/* KBOB Material Selection */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                    KBOB-Material:
+                  </Typography>
+                  <Select
+                    value={getMatchedOption(material.id)}
+                    onChange={(newValue) => {
+                      const newMatches = { ...matches };
+                      if (newValue) {
+                        newMatches[material.id] = newValue.value;
+                      } else {
+                        delete newMatches[material.id];
+                      }
+                      setMatches(newMatches);
                     }}
-                  >
-                    <Typography
-                      variant="body2"
+                    options={getOptionsForMaterial(material.id)}
+                    styles={selectStyles}
+                    placeholder="KBOB-Material auswählen..."
+                    isClearable
+                  />
+                </Box>
+
+                {/* Emission Value (if matched) */}
+                {matchedKbobMaterial && emissionValue !== null && (
+                  <Box sx={{ mt: "auto", pt: 1 }}>
+                    <Chip
+                      label={`${emissionValue.toLocaleString("de-CH", {
+                        maximumFractionDigits: 2,
+                      })} ${getEmissionUnit()}`}
+                      size="small"
                       sx={{
-                        fontWeight: 600,
-                        lineHeight: 1,
-                        mr: hasDensityRange ? 1 : 0,
+                        bgcolor: "success.lighter",
+                        color: "success.dark",
+                        fontWeight: 500,
+                        "& .MuiChip-label": {
+                          px: 1,
+                        },
                       }}
-                    >
-                      {Math.round(currentDensity).toLocaleString()} kg/m³
-                      {hasDensityRange && (
-                        <Typography
-                          component="span"
-                          variant="caption"
-                          sx={{
-                            display: "block",
-                            color: "text.secondary",
-                            mt: 0.5,
-                            fontWeight: "normal",
-                          }}
-                        >
-                          Range:{" "}
-                          {Math.round(
-                            kbobMaterial.densityRange?.min || 0
-                          ).toLocaleString()}
-                          -
-                          {Math.round(
-                            kbobMaterial.densityRange?.max || 0
-                          ).toLocaleString()}{" "}
-                          kg/m³
-                        </Typography>
-                      )}
-                    </Typography>
-                    {hasDensityRange && (
-                      <IconButton
-                        size="small"
-                        onClick={() => setEditingDensity(material.id)}
-                        sx={{
-                          ml: -0.5,
-                          p: 0.25,
-                          color: "inherit",
-                          "&:hover": { bgcolor: "info.main", color: "white" },
-                        }}
-                      >
-                        <EditIcon sx={{ fontSize: 16 }} />
-                      </IconButton>
-                    )}
+                    />
                   </Box>
                 )}
+              </Paper>
+            </Grid>
+          );
+        })}
+      </Grid>
 
-                {/* Emission Badge */}
-                {emissionValue !== null && (
-                  <Box
-                    sx={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      bgcolor: "success.lighter",
-                      color: "success.dark",
-                      px: 1.5,
-                      py: 0.75,
-                      borderRadius: 1.5,
-                      width: "fit-content",
-                    }}
-                  >
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 600, lineHeight: 1 }}
-                    >
-                      {Math.round(emissionValue).toLocaleString()}{" "}
-                      {getEmissionUnit()}
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-
-              {/* KBOB Material Selection */}
-              <Box sx={{ mt: "auto" }}>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mb: 1, fontWeight: 500 }}
-                >
-                  KBOB Material
-                </Typography>
-                <Select
-                  value={
-                    matches[material.id]
-                      ? {
-                          value: matches[material.id],
-                          label: kbobMaterial?.nameDE || "",
-                        }
-                      : null
-                  }
-                  onChange={(newValue) =>
-                    handleMaterialSelect(newValue, material.id)
-                  }
-                  options={
-                    typeof kbobMaterialOptions === "function"
-                      ? kbobMaterialOptions(material.id)
-                      : kbobMaterialOptions
-                  }
-                  styles={{
-                    ...selectStyles,
-                    control: (base: any, state: any) => ({
-                      ...base,
-                      borderColor: state.isFocused
-                        ? "var(--mui-palette-primary-main)"
-                        : "var(--mui-palette-divider)",
-                      boxShadow: state.isFocused
-                        ? "0 0 0 1px var(--mui-palette-primary-main)"
-                        : "none",
-                      "&:hover": {
-                        borderColor: "var(--mui-palette-primary-main)",
-                      },
-                    }),
-                    menu: (base: any) => ({
-                      ...base,
-                      zIndex: 2,
-                    }),
-                  }}
-                  className="w-full"
-                  placeholder="KBOB Material auswählen..."
-                />
-              </Box>
-            </Paper>
-
-            {/* Density Edit Dialog */}
-            {editingDensity === material.id && kbobMaterial?.densityRange && (
-              <DensityDialog
-                open={true}
-                onClose={() => setEditingDensity(null)}
-                materialId={material.id}
-                materialName={material.name}
-                currentDensity={currentDensity}
-                densityRange={kbobMaterial.densityRange}
-                onSave={(newDensity) =>
-                  handleDensityUpdate(material.id, newDensity)
-                }
-              />
-            )}
-          </Grid>
-        );
-      })}
-    </Grid>
+      {/* Density Dialog */}
+      {editingDensity && (
+        <DensityDialog
+          open={!!editingDensity}
+          onClose={() => setEditingDensity(null)}
+          materialId={editingDensity}
+          materialName={
+            modelledMaterials.find((m) => m.id === editingDensity)?.name || ""
+          }
+          currentDensity={
+            materialDensities[editingDensity] ||
+            kbobMaterials.find((k) => k.id === matches[editingDensity])
+              ?.density ||
+            0
+          }
+          densityRange={
+            kbobMaterials.find((k) => k.id === matches[editingDensity])
+              ?.densityRange || { min: 0, max: 5000 }
+          }
+          onSave={(density) => {
+            if (handleDensityUpdate) {
+              handleDensityUpdate(editingDensity, density);
+            }
+            setEditingDensity(null);
+          }}
+        />
+      )}
+    </Box>
   );
 };
 

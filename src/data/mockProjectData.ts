@@ -38,7 +38,40 @@ export const mockProjectData = {
       ],
     },
     materialMappings: {
-      // Add any existing mappings here
+      // Add mappings to KBOB material IDs
+      Beton: "2.1.01", // Beton/Normalbeton
+      Bewehrungsstahl: "3.1.01", // Stahl/Bewehrungsstahl
+      Holz: "4.1.01", // Holz/Vollholz
+      "Dämmung Glaswolle": "7.1.02", // Dämmung/Glaswolle
+      "OSB Platte": "4.2.02", // Holzwerkstoffe/OSB-Platte
+      Vollholz: "4.1.01", // Holz/Vollholz
+      Stahlblech: "3.1.02", // Stahl/Stahlblech
+      Weichfaser: "4.2.03", // Holzwerkstoffe/Weichfaserplatte
+    },
+  },
+  // Add more projects as needed
+  stadthausanlage: {
+    projectId: "stadthausanlage",
+    ifcData: {
+      materials: [
+        {
+          name: "Beton",
+          volume: 1245.7,
+        },
+        {
+          name: "Stahl",
+          volume: 84.2,
+        },
+        {
+          name: "Glas",
+          volume: 34.8,
+        },
+      ],
+    },
+    materialMappings: {
+      Beton: "2.1.01", // Beton/Normalbeton
+      Stahl: "3.1.01", // Stahl/Bewehrungsstahl
+      Glas: "6.1.01", // Glas/Normalglas
     },
   },
 };

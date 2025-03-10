@@ -119,15 +119,23 @@ export class LCACalculator {
     type: OutputFormats,
     includeUnit = false
   ): string {
-    if (typeof value !== "number") return "0";
+    console.log("formatImpact called with:", { value, type, includeUnit });
+
+    if (typeof value !== "number") {
+      console.log("Value is not a number, returning 0");
+      return "0";
+    }
 
     const formattedNumber = LCACalculator.NUMBER_FORMAT_DE.format(
       Math.round(value)
     );
+    console.log("Formatted number:", formattedNumber);
 
     if (!includeUnit) return formattedNumber;
 
     const unit = this.getUnitForFormat(type);
+    console.log("Unit for format:", unit);
+
     return formattedNumber + unit;
   }
 
@@ -162,7 +170,7 @@ export class LCACalculator {
             kbobMaterials,
             unmodelledMaterials,
             materialDensities
-          )[outputFormat.toLowerCase()];
+          )[this.getPropertyNameForFormat(outputFormat)];
 
     // Format in millions if value is greater than threshold
     if (value > LCACalculator.MILLION_THRESHOLD) {
@@ -172,5 +180,55 @@ export class LCACalculator {
     }
 
     return this.formatImpact(value, outputFormat);
+  }
+
+  // Helper method to get the property name for a given output format
+  private getPropertyNameForFormat(
+    outputFormat: OutputFormats
+  ): keyof ImpactResults {
+    switch (outputFormat) {
+      case OutputFormats.GWP:
+        return "gwp";
+      case OutputFormats.UBP:
+        return "ubp";
+      case OutputFormats.PENR:
+        return "penr";
+      default:
+        return "gwp"; // Default to GWP if unknown
+    }
+  }
+
+  formatImpactValue(
+    impactResults: ImpactResults,
+    outputFormat: OutputFormats,
+    showMillions: boolean = true
+  ): string {
+    console.log("formatImpactValue called with:", {
+      impactResults,
+      outputFormat,
+      showMillions,
+    });
+
+    // Get the correct property name based on the outputFormat
+    const propertyName = this.getPropertyNameForFormat(outputFormat);
+
+    const value = impactResults[propertyName];
+    console.log(
+      "Value extracted from impactResults:",
+      value,
+      "using property:",
+      propertyName
+    );
+
+    if (showMillions && value > LCACalculator.MILLION_THRESHOLD) {
+      const millionValue =
+        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) + " Mio.";
+      console.log("Formatted as millions:", millionValue);
+      return millionValue;
+    }
+
+    const result = this.formatImpact(value, outputFormat);
+    console.log("Final formatted result:", result);
+    return result;
   }
 }
