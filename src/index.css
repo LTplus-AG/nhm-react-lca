@@ -145,3 +145,123 @@ button:focus-visible {
     background-color: hsl(242 94% 32%);
   }
 }
+
+/* Add Tailwind classes for sidebar layout */
+.w-full {
+  width: 100%;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.flex-grow {
+  flex-grow: 1;
+}
+
+.flex-1 {
+  flex: 1 1 0%;
+}
+
+.h-full {
+  height: 100%;
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+.overflow-auto {
+  overflow: auto;
+}
+
+.w-1\/4 {
+  width: 25%;
+}
+
+.w-3\/4 {
+  width: 75%;
+}
+
+.min-w-\[300px\] {
+  min-width: 300px;
+}
+
+.max-w-\[400px\] {
+  max-width: 400px;
+}
+
+.p-8 {
+  padding: 2rem;
+}
+
+.p-10 {
+  padding: 2.5rem;
+}
+
+.bg-gray-100 {
+  background-color: #f3f4f6;
+}
+
+.gap-1 {
+  gap: 0.25rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.mb-2 {
+  margin-bottom: 0.5rem;
+}
+
+.mb-6 {
+  margin-top: 1.5rem;
+}
+
+.mb-8 {
+  margin-bottom: 2rem;
+}
+
+.mt-auto {
+  margin-top: auto;
+}
+
+.leading-tight {
+  line-height: 1.25;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.text-primary {
+  color: #1976d2;
+}
+
+@media (max-width: 768px) {
+  .w-full {
+    flex-direction: column;
+  }
+
+  .w-1\/4,
+  .w-3\/4 {
+    width: 100%;
+  }
+
+  .min-w-\[300px\] {
+    min-width: 100%;
+  }
+
+  .max-w-\[400px\] {
+    max-width: 100%;
+  }
+}

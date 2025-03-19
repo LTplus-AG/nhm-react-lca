@@ -1,152 +1,419 @@
-import React from "react";
-import { Grid, Paper, Box, Typography } from "@mui/material";
+import React, { useState } from "react";
+import {
+  Grid,
+  Paper,
+  Box,
+  Typography,
+  IconButton,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Tooltip,
+  Chip,
+} from "@mui/material";
 import Select from "react-select";
-import { Material, KbobMaterial } from "../../types/lca.types";
+import { Material, KbobMaterial, OutputFormats } from "../../types/lca.types";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
 
-interface ModelledMaterialListProps {
+export interface MaterialOption {
+  value: string;
+  label: string;
+  isDisabled?: boolean;
+  className?: string;
+}
+
+export interface MaterialOptionGroup {
+  label: string;
+  options: MaterialOption[];
+}
+
+export interface ModelledMaterialListProps {
   modelledMaterials: Material[];
   kbobMaterials: KbobMaterial[];
   matches: Record<string, string>;
-  handleMaterialSelect: (selectedOption: any, materialId: string) => void;
-  kbobMaterialOptions: any;
+  setMatches: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  kbobMaterialOptions:
+    | MaterialOption[]
+    | ((materialId: string) => MaterialOption[] | MaterialOptionGroup[]);
   selectStyles: any;
-  sortMaterials: (materials: Material[]) => Material[];
+  onDeleteMaterial: (id: string) => void;
+  handleDensityUpdate?: (materialId: string, newDensity: number) => void;
+  materialDensities?: Record<string, number>;
+  outputFormat?: OutputFormats;
 }
+
+interface DensityDialogProps {
+  open: boolean;
+  onClose: () => void;
+  materialId: string;
+  materialName: string;
+  currentDensity: number;
+  densityRange: { min: number; max: number };
+  onSave: (density: number) => void;
+}
+
+const DensityDialog: React.FC<DensityDialogProps> = ({
+  open,
+  onClose,
+  materialId,
+  materialName,
+  currentDensity,
+  densityRange,
+  onSave,
+}) => {
+  const [density, setDensity] = useState(currentDensity);
+  const [error, setError] = useState("");
+
+  const handleDensityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+    setDensity(value);
+    if (value < densityRange.min || value > densityRange.max) {
+      setError(
+        `Dichte muss zwischen ${densityRange.min} und ${densityRange.max} kg/m³ liegen`
+      );
+    } else {
+      setError("");
+    }
+  };
+
+  const handleSave = () => {
+    if (!error) {
+      onSave(density);
+      onClose();
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose}>
+      <DialogTitle>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+          <Typography variant="h6">Dichte bearbeiten</Typography>
+          <Typography variant="subtitle2" color="text.secondary">
+            {materialName}
+          </Typography>
+        </Box>
+      </DialogTitle>
+      <DialogContent>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            Gültige Dichte: {densityRange.min} - {densityRange.max} kg/m³
+          </Typography>
+          <TextField
+            fullWidth
+            type="number"
+            label="Dichte (kg/m³)"
+            value={density}
+            onChange={handleDensityChange}
+            error={!!error}
+            helperText={error}
+            sx={{ mt: 1 }}
+            InputProps={{
+              inputProps: {
+                min: densityRange.min,
+                max: densityRange.max,
+                step: "0.1",
+              },
+            }}
+          />
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} color="inherit">
+          Abbrechen
+        </Button>
+        <Button onClick={handleSave} color="primary" disabled={!!error}>
+          Speichern
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
 
 const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
   modelledMaterials,
   kbobMaterials,
   matches,
-  handleMaterialSelect,
+  setMatches,
   kbobMaterialOptions,
   selectStyles,
-  sortMaterials,
+  onDeleteMaterial,
+  handleDensityUpdate,
+  materialDensities = {},
+  outputFormat = OutputFormats.GWP,
 }) => {
+  const [editingDensity, setEditingDensity] = useState<string | null>(null);
+
+  const getMatchedOption = (materialId: string) => {
+    const matchId = matches[materialId];
+    if (!matchId) return null;
+
+    // If kbobMaterialOptions is a function, get the options for this material
+    const options =
+      typeof kbobMaterialOptions === "function"
+        ? kbobMaterialOptions(materialId)
+        : kbobMaterialOptions;
+
+    // Handle both flat options and grouped options
+    if (Array.isArray(options) && options.length > 0) {
+      // Check if this is a group array
+      if ("options" in options[0]) {
+        // It's a group array, search through all groups
+        for (const group of options as MaterialOptionGroup[]) {
+          const option = group.options.find((opt) => opt.value === matchId);
+          if (option) return option;
+        }
+        return null;
+      } else {
+        // It's a flat array
+        return (
+          (options as MaterialOption[]).find((opt) => opt.value === matchId) ||
+          null
+        );
+      }
+    }
+
+    return null;
+  };
+
+  const getOptionsForMaterial = (materialId: string) => {
+    return typeof kbobMaterialOptions === "function"
+      ? kbobMaterialOptions(materialId)
+      : kbobMaterialOptions;
+  };
+
+  const getEmissionValue = (
+    material: Material,
+    kbobMaterial: KbobMaterial | undefined
+  ) => {
+    if (!kbobMaterial) return null;
+    const density = materialDensities[material.id] || kbobMaterial.density;
+    const volume = typeof material.volume === "number" ? material.volume : 0;
+    const mass = volume * density;
+
+    switch (outputFormat) {
+      case OutputFormats.GWP:
+        return mass * kbobMaterial.gwp;
+      case OutputFormats.UBP:
+        return mass * kbobMaterial.ubp;
+      case OutputFormats.PENR:
+        return mass * kbobMaterial.penr;
+      default:
+        return null;
+    }
+  };
+
+  const getEmissionUnit = () => {
+    switch (outputFormat) {
+      case OutputFormats.GWP:
+        return "kg CO₂-eq";
+      case OutputFormats.UBP:
+        return "UBP";
+      case OutputFormats.PENR:
+        return "kWh";
+      default:
+        return "";
+    }
+  };
+
+  const getMatchedKbobMaterial = (materialId: string) => {
+    const matchId = matches[materialId];
+    if (!matchId) return null;
+    return kbobMaterials.find((m) => m.id === matchId) || null;
+  };
+
   return (
-    <Grid container spacing={2}>
-      {sortMaterials(modelledMaterials).map((material, index) => (
-        <Grid item xs={12} lg={6} key={material.id || index}>
-          <Paper
-            elevation={0}
-            sx={{
-              p: 3,
-              border: 1,
-              borderColor: "divider",
-              borderRadius: 2,
-              height: "100%",
-              display: "flex",
-              flexDirection: "column",
-              "&:hover": {
-                boxShadow: (theme) => theme.shadows[4],
-                borderColor: "transparent",
-              },
-              transition: "all 0.3s ease",
-            }}
-          >
-            {/* Material Name */}
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 600,
-                color: "text.primary",
-                lineHeight: 1.3,
-                mb: 2,
-              }}
-            >
-              {material.name}
-            </Typography>
+    <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        {
+          modelledMaterials.filter((material) => {
+            const matchId = matches[material.id];
+            return (
+              matchId &&
+              matchId.trim() !== "" &&
+              kbobMaterials.some((m) => m.id === matchId)
+            );
+          }).length
+        }{" "}
+        von {modelledMaterials.length} Materialien zugeordnet
+      </Typography>
 
-            {/* Volume Badge */}
-            <Box
-              sx={{
-                display: "inline-flex",
-                alignItems: "center",
-                bgcolor: "secondary.lighter",
-                color: "secondary.dark",
-                px: 1.5,
-                py: 0.75,
-                borderRadius: 1.5,
-                mb: 3,
-                width: "fit-content",
-              }}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ marginRight: "6px" }}
-              >
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-              </svg>
-              <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1 }}>
-                {typeof material.volume === "number"
-                  ? material.volume.toFixed(2)
-                  : "0.00"}{" "}
-                m³
-              </Typography>
-            </Box>
+      {/* Card Grid Layout */}
+      <Grid container spacing={2}>
+        {modelledMaterials.map((material) => {
+          const matchedKbobMaterial = getMatchedKbobMaterial(material.id);
+          const emissionValue = matchedKbobMaterial
+            ? getEmissionValue(material, matchedKbobMaterial)
+            : null;
 
-            {/* KBOB Material Selection */}
-            <Box sx={{ mt: "auto" }}>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 1, fontWeight: 500 }}
-              >
-                KBOB Material
-              </Typography>
-              <Select
-                value={
-                  matches[material.id]
-                    ? {
-                        value: matches[material.id],
-                        label:
-                          kbobMaterials.find((k) => k.id === matches[material.id])
-                            ?.nameDE || "",
-                      }
-                    : null
-                }
-                onChange={(newValue) =>
-                  handleMaterialSelect(newValue, material.id)
-                }
-                options={
-                  typeof kbobMaterialOptions === "function"
-                    ? kbobMaterialOptions(material.id)
-                    : kbobMaterialOptions
-                }
-                styles={{
-                  ...selectStyles,
-                  control: (base: any, state: any) => ({
-                    ...base,
-                    borderColor: state.isFocused
-                      ? "var(--mui-palette-primary-main)"
-                      : "var(--mui-palette-divider)",
-                    boxShadow: state.isFocused
-                      ? "0 0 0 1px var(--mui-palette-primary-main)"
-                      : "none",
-                    "&:hover": {
-                      borderColor: "var(--mui-palette-primary-main)",
-                    },
-                  }),
-                  menu: (base: any) => ({
-                    ...base,
-                    zIndex: 2,
-                  }),
+          return (
+            <Grid item xs={12} sm={6} md={4} key={material.id}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2,
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  "&:hover": {
+                    boxShadow: (theme) => theme.shadows[2],
+                    borderColor: "transparent",
+                  },
+                  transition: "all 0.3s ease",
                 }}
-                className="w-full"
-                placeholder="KBOB Material auswählen..."
-              />
-            </Box>
-          </Paper>
-        </Grid>
-      ))}
-    </Grid>
+              >
+                {/* Header with Material Name and Actions */}
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    mb: 2,
+                  }}
+                >
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      fontWeight: 600,
+                      color: "text.primary",
+                      fontSize: { xs: "1rem", sm: "1.1rem" },
+                    }}
+                  >
+                    {material.name}
+                  </Typography>
+
+                  <Tooltip title="Löschen">
+                    <IconButton
+                      onClick={() => onDeleteMaterial(material.id)}
+                      size="small"
+                      color="default"
+                    >
+                      <DeleteIcon fontSize="small" sx={{ color: "grey.500" }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+
+                {/* Volume Badge */}
+                <Box
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    bgcolor: "secondary.lighter",
+                    color: "secondary.dark",
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: 1.5,
+                    mb: 2,
+                    alignSelf: "flex-start",
+                  }}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ marginRight: "6px" }}
+                  >
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  </svg>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600, lineHeight: 1 }}
+                  >
+                    {typeof material.volume === "number"
+                      ? material.volume.toFixed(2)
+                      : "0.00"}{" "}
+                    m³
+                  </Typography>
+                </Box>
+
+                {/* KBOB Material Selection */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                    KBOB-Material:
+                  </Typography>
+                  <Select
+                    value={getMatchedOption(material.id)}
+                    onChange={(newValue) => {
+                      const newMatches = { ...matches };
+                      if (newValue) {
+                        newMatches[material.id] = newValue.value;
+                      } else {
+                        delete newMatches[material.id];
+                      }
+                      setMatches(newMatches);
+                    }}
+                    options={getOptionsForMaterial(material.id)}
+                    styles={selectStyles}
+                    placeholder="KBOB-Material auswählen..."
+                    isClearable
+                  />
+                </Box>
+
+                {/* Emission Value (if matched) */}
+                {matchedKbobMaterial && emissionValue !== null && (
+                  <Box sx={{ mt: "auto", pt: 1 }}>
+                    <Chip
+                      label={`${emissionValue.toLocaleString("de-CH", {
+                        maximumFractionDigits: 2,
+                      })} ${getEmissionUnit()}`}
+                      size="small"
+                      sx={{
+                        bgcolor: "success.lighter",
+                        color: "success.dark",
+                        fontWeight: 500,
+                        "& .MuiChip-label": {
+                          px: 1,
+                        },
+                      }}
+                    />
+                  </Box>
+                )}
+              </Paper>
+            </Grid>
+          );
+        })}
+      </Grid>
+
+      {/* Density Dialog */}
+      {editingDensity && (
+        <DensityDialog
+          open={!!editingDensity}
+          onClose={() => setEditingDensity(null)}
+          materialId={editingDensity}
+          materialName={
+            modelledMaterials.find((m) => m.id === editingDensity)?.name || ""
+          }
+          currentDensity={
+            materialDensities[editingDensity] ||
+            kbobMaterials.find((k) => k.id === matches[editingDensity])
+              ?.density ||
+            0
+          }
+          densityRange={
+            kbobMaterials.find((k) => k.id === matches[editingDensity])
+              ?.densityRange || { min: 0, max: 5000 }
+          }
+          onSave={(density) => {
+            if (handleDensityUpdate) {
+              handleDensityUpdate(editingDensity, density);
+            }
+            setEditingDensity(null);
+          }}
+        />
+      )}
+    </Box>
   );
 };
 

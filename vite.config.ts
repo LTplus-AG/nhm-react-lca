@@ -14,20 +14,24 @@ export default defineConfig(({ mode }) => {
         name: "lca-ui",
         filename: "remoteEntry.js",
         exposes: {
-          "./App": "./src/App.tsx",
+          "./App": "./src/StandaloneApp.tsx",
         },
-        shared: ["react", "react-dom", "react-router-dom"],
+        shared: {
+          react: {},
+          "react-dom": {},
+          "react-router-dom": {},
+        },
       }),
     ],
     server: {
       proxy: {
-        "/backend/kbob": {
-          target: "http://localhost:3000",
+        "/backend": {
+          target: env.VITE_API_URL || "http://localhost:3000",
           changeOrigin: true,
           secure: false,
         },
         "/api": {
-          target: "http://localhost:3000",
+          target: env.VITE_API_URL || "http://localhost:3000",
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path,
@@ -40,6 +44,7 @@ export default defineConfig(({ mode }) => {
     build: {
       target: "esnext",
       minify: false,
+      cssCodeSplit: false,
     },
   };
 });

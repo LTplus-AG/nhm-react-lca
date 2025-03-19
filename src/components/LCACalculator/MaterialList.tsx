@@ -20,7 +20,10 @@ interface MaterialOption {
 interface MaterialListProps {
   unmodelledMaterials: UnmodelledMaterial[];
   kbobMaterials: KbobMaterial[];
-  handleMaterialSelect: (selectedOption: SingleValue<MaterialOption>, materialId: string) => void;
+  handleMaterialSelect: (
+    selectedOption: SingleValue<MaterialOption>,
+    materialId: string
+  ) => void;
   handleRemoveUnmodelledMaterial: (index: number) => void;
   handleEditMaterial: (material: UnmodelledMaterial) => void;
   kbobMaterialOptions: any;
@@ -37,13 +40,13 @@ const MaterialList: React.FC<MaterialListProps> = ({
   selectStyles,
 }) => {
   return (
-    <Grid container spacing={2}>
+    <Grid container spacing={{ xs: 1, sm: 2 }}>
       {unmodelledMaterials.map((material, index) => (
-        <Grid item xs={12} md={6} key={material.id}>
+        <Grid item xs={12} sm={6} md={6} lg={4} xl={4} key={material.id}>
           <Paper
             elevation={0}
             sx={{
-              p: 3,
+              p: { xs: 2, sm: 3 },
               border: 1,
               borderColor: "divider",
               borderRadius: 2,
@@ -55,6 +58,9 @@ const MaterialList: React.FC<MaterialListProps> = ({
                 borderColor: "transparent",
               },
               transition: "all 0.3s ease",
+              maxWidth: "1200px",
+              width: "100%",
+              mx: "auto",
             }}
           >
             {/* Header with Actions */}
@@ -62,7 +68,7 @@ const MaterialList: React.FC<MaterialListProps> = ({
               sx={{
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "flex-start",
+                alignItems: "center",
                 mb: 2,
               }}
             >
@@ -72,8 +78,7 @@ const MaterialList: React.FC<MaterialListProps> = ({
                 sx={{
                   fontWeight: 600,
                   color: "text.primary",
-                  lineHeight: 1.3,
-                  mb: 1,
+                  fontSize: { xs: "1rem", sm: "1.25rem" },
                 }}
               >
                 {material.name}

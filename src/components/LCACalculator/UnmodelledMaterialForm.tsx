@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Grid, Typography, Button, TextField } from "@mui/material";
 import Select from "react-select";
 import { UnmodelledMaterial, KbobMaterial } from "../../types/lca.types";
@@ -24,15 +24,31 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
   kbobMaterialOptions,
   selectStyles,
 }) => {
-  // Create EBKP options with correct property name
-  const ebkpOptions = React.useMemo(
-    () =>
-      ebkpData.map((ebkp) => ({
-        value: ebkp.code,
-        label: `${ebkp.code} - ${ebkp.bezeichnung}`,
-      })),
-    []
-  );
+  const [densityError, setDensityError] = useState("");
+  const [selectedKbobMaterial, setSelectedKbobMaterial] =
+    useState<KbobMaterial | null>(null);
+  const [ebkpOptions, setEbkpOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+
+  useEffect(() => {
+    if (newUnmodelledMaterial.kbobId) {
+      const material = kbobMaterials.find(
+        (m) => m.id === newUnmodelledMaterial.kbobId
+      );
+      setSelectedKbobMaterial(material || null);
+    } else {
+      setSelectedKbobMaterial(null);
+    }
+  }, [newUnmodelledMaterial.kbobId, kbobMaterials]);
+
+  useEffect(() => {
+    const options = ebkpData.map((item: EBKPItem) => ({
+      value: item.code,
+      label: `${item.code} - ${item.bezeichnung}`,
+    }));
+    setEbkpOptions(options);
+  }, []);
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -48,73 +64,131 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
     }
   };
 
+  const handleDensityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+
+    if (selectedKbobMaterial?.densityRange) {
+      const { min, max } = selectedKbobMaterial.densityRange;
+      if (value < min || value > max) {
+        setDensityError(`Dichte muss zwischen ${min} und ${max} kg/m³ liegen`);
+      } else {
+        setDensityError("");
+      }
+    }
+
+    setNewUnmodelledMaterial({
+      ...newUnmodelledMaterial,
+      density: value,
+    });
+  };
+
+  const handleKbobMaterialChange = (newValue: any) => {
+    const selectedMaterial = kbobMaterials.find(
+      (k) => k.id === newValue?.value
+    );
+    setNewUnmodelledMaterial({
+      ...newUnmodelledMaterial,
+      kbobId: newValue?.value || "",
+      density: selectedMaterial?.density || 0,
+    });
+
+    // Reset density error when changing material
+    setDensityError("");
+  };
+
   return (
-    <Box component="form" onSubmit={handleAddUnmodelledMaterial} sx={{ mb: 4 }}>
+    <Box
+      component="form"
+      onSubmit={handleAddUnmodelledMaterial}
+      sx={{
+        mb: 4,
+        p: { xs: 2, sm: 3 },
+        border: "1px dashed",
+        borderColor: "divider",
+        borderRadius: 2,
+        bgcolor: "background.default",
+      }}
+    >
+      <Typography
+        variant="h6"
+        sx={{ mb: 2, fontWeight: 600, fontSize: { xs: "1rem", sm: "1.25rem" } }}
+      >
+        Nicht-modelliertes Material hinzufügen
+      </Typography>
+
       <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-            Material Name
+        <Grid item xs={12} sm={6}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mb: 1, fontWeight: 500 }}
+          >
+            Name
           </Typography>
           <TextField
+            required
             fullWidth
+            size="small"
+            placeholder="Material Name"
             value={newUnmodelledMaterial.name}
             onChange={(e) =>
-              setNewUnmodelledMaterial({
-                ...newUnmodelledMaterial,
+              setNewUnmodelledMaterial((prev) => ({
+                ...prev,
                 name: e.target.value,
-              })
+              }))
             }
-            required
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-            Volume (m³)
-          </Typography>
-          <TextField
-            fullWidth
-            type="number"
-            inputProps={{
-              min: 0,
-              step: "any",
-              pattern: "[0-9]*.?[0-9]*", // Only allow numbers and decimal point
-              onKeyDown: (e) => {
-                // Prevent non-numeric input (except for special keys)
-                if (
-                  !/[\d.]/.test(e.key) && // Not a digit or decimal
-                  ![
-                    "Backspace",
-                    "Delete",
-                    "ArrowLeft",
-                    "ArrowRight",
-                    "Tab",
-                  ].includes(e.key) && // Not a control key
-                  !(
-                    (e.ctrlKey || e.metaKey) &&
-                    ["c", "v", "x"].includes(e.key.toLowerCase())
-                  ) // Not copy/paste/cut
-                ) {
-                  e.preventDefault();
-                }
-                // Prevent multiple decimal points
-                if (
-                  e.key === "." &&
-                  (e.target as HTMLInputElement).value.includes(".")
-                ) {
-                  e.preventDefault();
-                }
+            InputProps={{
+              sx: {
+                bgcolor: "background.paper",
               },
             }}
-            value={newUnmodelledMaterial.volume}
-            onChange={handleVolumeChange}
-            required
           />
         </Grid>
-        <Grid item xs={12} md={6}>
-          <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-            EBKP Code
+
+        <Grid item xs={12} sm={6}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mb: 1, fontWeight: 500 }}
+          >
+            Volumen (m³)
+          </Typography>
+          <TextField
+            required
+            fullWidth
+            size="small"
+            type="number"
+            placeholder="0.00"
+            value={
+              typeof newUnmodelledMaterial.volume === "number"
+                ? newUnmodelledMaterial.volume
+                : ""
+            }
+            onChange={(e) =>
+              setNewUnmodelledMaterial((prev) => ({
+                ...prev,
+                volume: e.target.value ? parseFloat(e.target.value) : "",
+              }))
+            }
+            InputProps={{
+              sx: {
+                bgcolor: "background.paper",
+              },
+            }}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mb: 1, fontWeight: 500 }}
+          >
+            EBKP
           </Typography>
           <Select
+            required
+            options={ebkpOptions}
             value={
               newUnmodelledMaterial.ebkp
                 ? {
@@ -128,20 +202,26 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
                 : null
             }
             onChange={(newValue) =>
-              setNewUnmodelledMaterial({
-                ...newUnmodelledMaterial,
+              setNewUnmodelledMaterial((prev) => ({
+                ...prev,
                 ebkp: newValue?.value || "",
-              })
+              }))
             }
-            options={ebkpOptions}
             styles={selectStyles}
+            placeholder="EBKP Code auswählen..."
           />
         </Grid>
-        <Grid item xs={12} md={6}>
-          <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+
+        <Grid item xs={12} sm={6}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mb: 1, fontWeight: 500 }}
+          >
             KBOB Material
           </Typography>
           <Select
+            options={kbobMaterialOptions}
             value={
               newUnmodelledMaterial.kbobId
                 ? {
@@ -154,35 +234,59 @@ const UnmodelledMaterialForm: React.FC<UnmodelledMaterialFormProps> = ({
                 : null
             }
             onChange={(newValue) =>
-              setNewUnmodelledMaterial({
-                ...newUnmodelledMaterial,
+              setNewUnmodelledMaterial((prev) => ({
+                ...prev,
                 kbobId: newValue?.value || "",
-              })
-            }
-            options={
-              typeof kbobMaterialOptions === "function"
-                ? kbobMaterialOptions("")
-                : kbobMaterialOptions
+              }))
             }
             styles={selectStyles}
+            placeholder="KBOB Material auswählen..."
           />
         </Grid>
+
+        {/* Density field - only shown when KBOB material is selected */}
+        {selectedKbobMaterial?.densityRange && (
+          <Grid item xs={12} md={6}>
+            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+              Dichte (kg/m³)
+            </Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={
+                newUnmodelledMaterial.density || selectedKbobMaterial.density
+              }
+              onChange={handleDensityChange}
+              error={!!densityError}
+              helperText={
+                densityError ||
+                `Gültige Dichte: ${selectedKbobMaterial.densityRange.min} - ${selectedKbobMaterial.densityRange.max} kg/m³`
+              }
+              required
+              InputProps={{
+                inputProps: {
+                  min: selectedKbobMaterial.densityRange.min,
+                  max: selectedKbobMaterial.densityRange.max,
+                  step: "0.1",
+                },
+              }}
+            />
+          </Grid>
+        )}
+
+        <Grid item xs={12}>
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              sx={{ textTransform: "none" }}
+            >
+              Hinzufügen
+            </Button>
+          </Box>
+        </Grid>
       </Grid>
-      <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
-        <Button
-          type="submit"
-          variant="contained"
-          color="primary"
-          disabled={
-            !newUnmodelledMaterial.name ||
-            !newUnmodelledMaterial.ebkp ||
-            typeof newUnmodelledMaterial.volume !== "number" ||
-            newUnmodelledMaterial.volume <= 0
-          }
-        >
-          Hinzufügen
-        </Button>
-      </Box>
     </Box>
   );
 };

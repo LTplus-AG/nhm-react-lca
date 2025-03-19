@@ -1,14 +1,15 @@
 // Output format enums and types
 export enum OutputFormats {
-  GWP = "gwp",
-  UBP = "ubp",
-  PENR = "penr",
+  GWP = "GWP",
+  UBP = "UBP",
+  PENR = "PENR",
 }
 
 export const OutputFormatLabels: Record<OutputFormats, string> = {
-  [OutputFormats.GWP]: "Treibhausgasemissionen (kg CO₂-eq)",
+  [OutputFormats.GWP]: "Treibhausgasemissionen (kg CO2-eq)",
   [OutputFormats.UBP]: "Umweltbelastungspunkte (UBP)",
-  [OutputFormats.PENR]: "Primärenergie nicht erneuerbar (kWh)",
+  [OutputFormats.PENR]:
+    "Primärenergie, nicht erneuerbar (Graue Energie) (kWh oil-eq)",
 };
 
 // Separate labels for units only
@@ -44,6 +45,7 @@ export interface Material {
   name: string;
   volume: number;
   ebkp?: string;
+  density?: number;
 }
 
 export interface MaterialCSVImport {
@@ -57,15 +59,20 @@ export interface MaterialCSVImport {
 export interface UnmodelledMaterial {
   id: string;
   name: string;
-  volume: number | "";
+  volume: number | string;
   ebkp: string;
   kbobId: string;
+  density?: number;
 }
 
 export interface KbobMaterial {
   id: string;
   nameDE: string;
   density: number;
+  densityRange?: {
+    min: number;
+    max: number;
+  };
   gwp: number;
   ubp: number;
   penr: number;
