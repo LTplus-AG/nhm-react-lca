@@ -14,9 +14,13 @@ export default defineConfig(({ mode }) => {
         name: "lca-ui",
         filename: "remoteEntry.js",
         exposes: {
-          "./App": "./src/App.tsx",
+          "./App": "./src/StandaloneApp.tsx",
         },
-        shared: ["react", "react-dom", "react-router-dom"],
+        shared: {
+          react: {},
+          "react-dom": {},
+          "react-router-dom": {},
+        },
       }),
     ],
     server: {
@@ -40,6 +44,7 @@ export default defineConfig(({ mode }) => {
     build: {
       target: "esnext",
       minify: false,
+      cssCodeSplit: false,
     },
   };
 });

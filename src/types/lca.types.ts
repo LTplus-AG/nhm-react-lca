@@ -6,9 +6,10 @@ export enum OutputFormats {
 }
 
 export const OutputFormatLabels: Record<OutputFormats, string> = {
-  [OutputFormats.GWP]: "Global Warming Potential (GWP)",
+  [OutputFormats.GWP]: "Treibhausgasemissionen (kg CO2-eq)",
   [OutputFormats.UBP]: "Umweltbelastungspunkte (UBP)",
-  [OutputFormats.PENR]: "Primary Energy Non-Renewable (PENR)",
+  [OutputFormats.PENR]:
+    "Primärenergie, nicht erneuerbar (Graue Energie) (kWh oil-eq)",
 };
 
 // Separate labels for units only
