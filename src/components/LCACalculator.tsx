@@ -28,6 +28,9 @@ import {
   Grid,
   Chip,
   Tooltip,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
 } from "@mui/material";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Select, { SingleValue } from "react-select";
@@ -53,6 +56,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import EditMaterialDialog from "./LCACalculator/EditMaterialDialog";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
+import ReviewDialog from "./LCACalculator/ReviewDialog";
 
 // Import WebSocket service
 import {
@@ -226,7 +230,86 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
 
-  // Fix the currentImpact calculation - move this up before it's used in the JSX
+  // Add new state for per year toggle
+  const [showPerYear, setShowPerYear] = useState(false);
+
+  // Add state for total impact
+  const [totalImpact, setTotalImpact] = useState({
+    gwp: 0,
+    ubp: 0,
+    penr: 0,
+    modelledMaterials: 0,
+    unmodelledMaterials: 0,
+    totalElementCount: 0,
+  });
+
+  // Add formatNumber function first
+  const formatNumber = (num: number, decimals: number = 0) => {
+    return new Intl.NumberFormat("de-CH", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      useGrouping: true,
+    }).format(num);
+  };
+
+  // Then add formatImpactValue function
+  const formatImpactValue = (value: number, unit: string) => {
+    const displayValue = showPerYear ? value / 45 : value;
+    // For per-year values, keep 2 decimal places, otherwise remove trailing zeros
+    const formattedValue = showPerYear
+      ? formatNumber(displayValue, 2)
+      : formatNumber(displayValue);
+    return `${formattedValue} ${unit}${showPerYear ? "/Jahr" : ""}`;
+  };
+
+  // Update the calculateGrandTotal function
+  const calculateGrandTotal = (
+    materials: Material[],
+    matches: Record<string, string>,
+    kbobMaterials: KbobMaterial[],
+    outputFormat: OutputFormats
+  ) => {
+    console.log("Calculate Grand Total with:", {
+      materials: materials.length,
+      matches: Object.keys(matches).length,
+      kbobMaterials: kbobMaterials.length,
+    });
+
+    const impactResults = calculator.calculateImpact(
+      materials,
+      matches,
+      kbobMaterials,
+      unmodelledMaterials,
+      materialDensities
+    );
+
+    console.log("Impact results in calculateGrandTotal:", impactResults);
+
+    // Get the appropriate value based on output format
+    let value: number;
+    let unit: string;
+    switch (outputFormat) {
+      case OutputFormats.GWP:
+        value = impactResults.gwp;
+        unit = "kg CO₂-eq";
+        break;
+      case OutputFormats.UBP:
+        value = impactResults.ubp;
+        unit = "UBP";
+        break;
+      case OutputFormats.PENR:
+        value = impactResults.penr;
+        unit = "kWh";
+        break;
+      default:
+        value = impactResults.gwp;
+        unit = "kg CO₂-eq";
+    }
+
+    return formatImpactValue(value, unit);
+  };
+
+  // Update the currentImpact calculation
   const currentImpact = useMemo(() => {
     if (kbobMaterials.length === 0)
       return { currentImpact: "0", unit: "kg CO₂-eq." };
@@ -240,7 +323,7 @@ export default function LCACalculatorComponent(): JSX.Element {
     );
 
     return {
-      currentImpact: calculator.formatImpactValue(results, outputFormat),
+      currentImpact: formatImpactValue(results.gwp, "kg CO₂-eq"),
       unit: OutputFormatUnits[outputFormat],
     };
   }, [
@@ -250,6 +333,7 @@ export default function LCACalculatorComponent(): JSX.Element {
     unmodelledMaterials,
     materialDensities,
     outputFormat,
+    showPerYear, // Add showPerYear to dependencies
   ]);
 
   // Initialize WebSocket connection
@@ -622,38 +706,6 @@ export default function LCACalculatorComponent(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Improve the calculateGrandTotal function
-  const calculateGrandTotal = (
-    materials: Material[],
-    matches: Record<string, string>,
-    kbobMaterials: KbobMaterial[],
-    outputFormat: OutputFormats
-  ) => {
-    console.log("Calculate Grand Total with:", {
-      materials: materials.length,
-      matches: Object.keys(matches).length,
-      kbobMaterials: kbobMaterials.length,
-    });
-
-    const impactResults = calculator.calculateImpact(
-      materials,
-      matches,
-      kbobMaterials,
-      unmodelledMaterials,
-      materialDensities
-    );
-
-    console.log("Impact results in calculateGrandTotal:", impactResults);
-
-    const formattedValue = calculator.formatImpactValue(
-      impactResults,
-      outputFormat
-    );
-    console.log("Formatted value:", formattedValue);
-
-    return formattedValue;
   };
 
   // Use this instead of the missing method
@@ -1478,6 +1530,45 @@ export default function LCACalculatorComponent(): JSX.Element {
     fetchProjects();
   }, []);
 
+  // Calculate total impact based on modelled materials
+  useEffect(() => {
+    if (kbobMaterials.length === 0) return;
+
+    const results = calculator.calculateImpact(
+      modelledMaterials,
+      matches,
+      kbobMaterials,
+      unmodelledMaterials,
+      materialDensities
+    );
+
+    // Adjust values based on showPerYear setting
+    const adjustedResults = {
+      gwp: showPerYear ? results.gwp / 45 : results.gwp,
+      ubp: showPerYear ? results.ubp / 45 : results.ubp,
+      penr: showPerYear ? results.penr / 45 : results.penr,
+      modelledMaterials: results.modelledMaterials,
+      unmodelledMaterials: results.unmodelledMaterials,
+      totalElementCount: results.totalElementCount,
+    };
+
+    setTotalImpact(adjustedResults);
+  }, [
+    modelledMaterials,
+    matches,
+    kbobMaterials,
+    unmodelledMaterials,
+    materialDensities,
+    showPerYear, // Add showPerYear to dependencies
+  ]);
+
+  // Add handleSubmitReview function
+  const handleSubmitReview = () => {
+    // Implement your submit logic here
+    alert("Ökobilanz gesendet!");
+    setReviewDialogOpen(false);
+  };
+
   return (
     <Box
       className="w-full flex flex-col md:flex-row"
@@ -1580,19 +1671,17 @@ export default function LCACalculatorComponent(): JSX.Element {
                   color="common.black"
                   fontWeight="bold"
                 >
-                  {calculateGrandTotal(
-                    modelledMaterials.filter((m) => matches[m.id]),
-                    matches,
-                    kbobMaterials,
-                    outputFormat
+                  {formatImpactValue(
+                    parseFloat(
+                      calculateGrandTotal(
+                        modelledMaterials.filter((m) => matches[m.id]),
+                        matches,
+                        kbobMaterials,
+                        outputFormat
+                      ).replace(/[^\d.-]/g, "")
+                    ),
+                    OutputFormatUnits[outputFormat]
                   )}
-                  <Typography
-                    component="span"
-                    variant="h6"
-                    sx={{ ml: 1, opacity: 0.7, fontWeight: "normal" }}
-                  >
-                    {OutputFormatUnits[outputFormat]}
-                  </Typography>
                 </Typography>
               </Box>
 
@@ -1767,26 +1856,53 @@ export default function LCACalculatorComponent(): JSX.Element {
                   Ökobilanz berechnen
                 </Typography>
 
-                {/* "Ökobilanz überprüfen" button positioned in top right */}
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={() => setReviewDialogOpen(true)}
-                  disabled={
-                    modelledMaterials.length === 0 &&
-                    unmodelledMaterials.length === 0
-                  }
-                  sx={{
-                    fontWeight: 500,
-                    textTransform: "none",
-                    backgroundColor: "#0D0599",
-                    "&:hover": {
-                      backgroundColor: "#0A0477",
-                    },
-                  }}
-                >
-                  Ökobilanz überprüfen
-                </Button>
+                {/* Add per year toggle in top right */}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <FormControl component="fieldset">
+                    <RadioGroup
+                      row
+                      value={showPerYear}
+                      onChange={(e) =>
+                        setShowPerYear(e.target.value === "true")
+                      }
+                      sx={{ gap: 2 }}
+                    >
+                      <FormControlLabel
+                        value="false"
+                        control={<Radio size="small" />}
+                        label="Gesamt"
+                        sx={{ m: 0 }}
+                      />
+                      <FormControlLabel
+                        value="true"
+                        control={<Radio size="small" />}
+                        label="Pro Jahr"
+                        sx={{ m: 0 }}
+                      />
+                    </RadioGroup>
+                  </FormControl>
+
+                  {/* "Ökobilanz überprüfen" button */}
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={() => setReviewDialogOpen(true)}
+                    disabled={
+                      modelledMaterials.length === 0 &&
+                      unmodelledMaterials.length === 0
+                    }
+                    sx={{
+                      fontWeight: 500,
+                      textTransform: "none",
+                      backgroundColor: "#0D0599",
+                      "&:hover": {
+                        backgroundColor: "#0A0477",
+                      },
+                    }}
+                  >
+                    Ökobilanz überprüfen
+                  </Button>
+                </Box>
               </Box>
 
               {/* Existing tabs and content */}
@@ -2195,72 +2311,18 @@ export default function LCACalculatorComponent(): JSX.Element {
         </Box>
       </Box>
 
-      {/* Reuse existing dialogs */}
-      {/* Review Dialog */}
-      <Dialog
+      {/* Replace the Review Dialog with the new component */}
+      <ReviewDialog
         open={reviewDialogOpen}
         onClose={() => setReviewDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: "flex", alignItems: "center" }}>
-            <Typography variant="h6">Ökobilanz überprüfen</Typography>
-          </Box>
-        </DialogTitle>
-        <DialogContent dividers>
-          <Box sx={{ p: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Zusammenfassung
-            </Typography>
-            <Typography variant="body2" paragraph>
-              {modelledMaterials.filter((m) => matches[m.id]).length} von{" "}
-              {modelledMaterials.length} Materialien wurden zugeordnet.
-              {modelledMaterials.length - Object.keys(matches).length > 0 &&
-                ` ${
-                  modelledMaterials.length - Object.keys(matches).length
-                } Materialien sind nicht zugeordnet und werden nicht berücksichtigt.`}
-            </Typography>
-
-            <Box
-              sx={{
-                mt: 3,
-                mb: 3,
-                display: "flex",
-                justifyContent: "space-between",
-              }}
-            >
-              <Box>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Aktuelle Ökobilanz:
-                </Typography>
-                <Typography fontWeight="medium">
-                  {currentImpact.currentImpact} {currentImpact.unit}
-                </Typography>
-              </Box>
-            </Box>
-
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 4 }}>
-              Die Ökobilanz wird im Nachhaltigkeitsmonitoring Dashboard
-              aktualisiert.
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setReviewDialogOpen(false)}>Abbrechen</Button>
-          <Button
-            onClick={() => {
-              // Here you'd implement your submit logic
-              alert("Ökobilanz gesendet!");
-              setReviewDialogOpen(false);
-            }}
-            variant="contained"
-            color="primary"
-          >
-            Daten senden
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onSubmit={handleSubmitReview}
+        modelledMaterials={modelledMaterials}
+        matches={matches}
+        currentImpact={currentImpact}
+        projectId={selectedProject?.value}
+        showPerYear={showPerYear}
+        totalImpact={totalImpact}
+      />
 
       {/* Add the bulk matching dialog to the component */}
       {bulkMatchingDialog}
