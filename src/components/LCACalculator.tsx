@@ -54,25 +54,16 @@ import EditMaterialDialog from "./LCACalculator/EditMaterialDialog";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
 
-// Add import at the top
-import { mockProjectData } from "../data/mockProjectData";
-
-// Add interface for mock data
-interface MockData {
-  [key: string]: {
-    projectId: string;
-    ifcData: {
-      materials: {
-        name: string;
-        volume: number;
-      }[];
-    };
-    materialMappings: Record<string, string>;
-  };
-}
-
-// Cast mockProjectData to the correct type
-const typedMockProjectData = mockProjectData as MockData;
+// Import WebSocket service
+import {
+  initWebSocket,
+  getProjectMaterials,
+  saveProjectMaterials,
+  getProjects,
+  ConnectionStatus,
+  onStatusChange,
+  ProjectData,
+} from "../services/websocketService";
 
 const calculator = new LCACalculator();
 
@@ -117,22 +108,21 @@ interface IFCResult {
   materialMappings: Record<string, string>;
 }
 
-// Update API configuration to use import.meta.env
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
 // Add new interface for project options
 interface ProjectOption {
   value: string;
   label: string;
 }
 
-// Update the project options to match the available mock data
-const PROJECT_OPTIONS = [
-  { value: "juch-areal", label: "Recyclingzentrum Juch-Areal" },
-  { value: "stadthausanlage", label: "Gesamterneuerung Stadthausanlage" },
-  { value: "amtshaus-walche", label: "Amtshaus Walche" },
-  { value: "gz-wipkingen", label: "Gemeinschaftszentrum Wipkingen" },
-];
+// Add new interface for project data
+interface ProjectData {
+  projectId: string;
+  name: string;
+  ifcData: {
+    materials: IFCMaterial[];
+  };
+  materialMappings: Record<string, string>;
+}
 
 // Add instructions for the sidebar
 const Instructions = [
@@ -150,6 +140,20 @@ const Instructions = [
     label: "Ökobilanz überprüfen",
     description:
       "Überprüfen Sie die berechnete Ökobilanz und senden Sie die Daten.",
+  },
+];
+
+// Add default project options
+const DEFAULT_PROJECT_OPTIONS: ProjectOption[] = [
+  { value: "67e391836c096bf72bc23d97", label: "Recyclingzentrum Juch-Areal" },
+  {
+    value: "67e392836c096bf72bc23d98",
+    label: "Gesamterneuerung Stadthausanlage",
+  },
+  { value: "67e393836c096bf72bc23d99", label: "Amtshaus Walche" },
+  {
+    value: "67e394836c096bf72bc23d9a",
+    label: "Gemeinschaftszentrum Wipkingen",
   },
 ];
 
@@ -218,6 +222,10 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [showMatchedMaterials, setShowMatchedMaterials] = useState(true);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
 
+  // Add new state for project options
+  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+
   // Fix the currentImpact calculation - move this up before it's used in the JSX
   const currentImpact = useMemo(() => {
     if (kbobMaterials.length === 0)
@@ -242,78 +250,66 @@ export default function LCACalculatorComponent(): JSX.Element {
     unmodelledMaterials,
     materialDensities,
     outputFormat,
-    calculator,
   ]);
 
-  // Update the useEffect that loads materials when a project is selected
+  // Initialize WebSocket connection
   useEffect(() => {
-    console.log("=== Project Selection Effect STARTED ===");
-    console.log("Selected project:", selectedProject);
+    initWebSocket();
 
-    if (!selectedProject) {
-      console.log("No project selected, clearing materials");
-      setModelledMaterials([]);
-      setMatches({});
-      console.log("=== Project Selection Effect COMPLETED (no project) ===");
-      return;
-    }
+    // Set up status change handler
+    const handleStatusChange = (status: ConnectionStatus) => {
+      console.log("WebSocket status changed:", status);
+    };
 
-    const projectId = selectedProject.value;
-    console.log(`Loading materials for project: ${projectId}`);
+    onStatusChange(handleStatusChange);
 
-    // Simulate loading data from the API
-    const mockData = typedMockProjectData[projectId];
-    console.log("Mock data loaded:", mockData);
+    return () => {
+      // Cleanup if needed
+    };
+  }, []);
 
-    if (mockData) {
-      // Transform the IFC materials to our format
-      const materials = mockData.ifcData.materials.map((m, index) => ({
-        id: m.name, // Use name as ID to match with materialMappings
-        name: m.name,
-        volume: m.volume,
-      }));
-      console.log(
-        `Loaded ${materials.length} materials from mock data:`,
-        materials
-      );
-
-      // Set the materials
-      setModelledMaterials(materials);
-
-      // Set any existing matches from the mock data
-      if (mockData.materialMappings) {
-        const mappings: Record<string, string> = {};
-        materials.forEach((material) => {
-          if (mockData.materialMappings[material.name]) {
-            mappings[material.id] = mockData.materialMappings[material.name];
-            console.log(
-              `Mapped ${material.name} to ${
-                mockData.materialMappings[material.name]
-              }`
-            );
-          } else {
-            console.log(`No mapping found for ${material.name}`);
-          }
-        });
-
-        console.log("Setting material mappings:", mappings);
-        setMatches(mappings);
+  // Load project materials when a project is selected
+  useEffect(() => {
+    const loadProjectMaterials = async () => {
+      if (!selectedProject) {
+        console.log("No project selected");
+        return;
       }
 
-      // Set the IFC result
-      setIfcResult({
-        projectId,
-        ifcData: mockData.ifcData,
-        materialMappings: mockData.materialMappings || {},
-      });
+      try {
+        console.log("Loading materials for project:", selectedProject.value);
+        const projectData = await getProjectMaterials(selectedProject.value);
 
-      // Set active tab to show materials
-      setActiveTab(0);
-    } else {
-      console.error(`No mock data found for project: ${projectId}`);
-    }
+        if (projectData && projectData.ifcData) {
+          setIfcResult({
+            projectId: selectedProject.value,
+            ifcData: projectData.ifcData,
+            materialMappings: projectData.materialMappings || {},
+          });
 
-    console.log("=== Project Selection Effect COMPLETED ===");
+          // Update modelled materials from IFC data
+          const modelledMaterialsFromIFC = projectData.ifcData.materials.map(
+            (material) => ({
+              id: material.name,
+              name: material.name,
+              volume: material.volume,
+              unit: "m³",
+            })
+          );
+          setModelledMaterials(modelledMaterialsFromIFC);
+
+          // Update matches from saved mappings
+          if (projectData.materialMappings) {
+            setMatches(projectData.materialMappings);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading project materials:", error);
+        setMessage("Error loading project materials. Please try again.");
+      }
+    };
+
+    loadProjectMaterials();
   }, [selectedProject]);
 
   useEffect(() => {
@@ -1314,25 +1310,28 @@ export default function LCACalculatorComponent(): JSX.Element {
   };
 
   const handleAbschliessen = async () => {
-    if (!selectedProject?.value) return;
+    if (!selectedProject) {
+      setMessage("Please select a project first");
+      return;
+    }
 
-    setLoading(true);
-    // Simulate API delay
-    setTimeout(() => {
-      try {
-        // Update local mock data
-        if (typedMockProjectData[selectedProject.value]) {
-          typedMockProjectData[selectedProject.value].materialMappings =
-            matches;
-        }
-        setMessage("Material mappings updated successfully!");
-      } catch (error) {
-        console.error("Error updating material mappings:", error);
-        setMessage("Error updating material mappings");
-      } finally {
-        setLoading(false);
-      }
-    }, 1000);
+    try {
+      setLoading(true);
+
+      // Save current state to database
+      await saveProjectMaterials(selectedProject.value, {
+        ifcData: ifcResult.ifcData,
+        materialMappings: matches,
+      });
+
+      setMessage("Data saved successfully");
+      setConfirmationOpen(false);
+    } catch (error) {
+      console.error("Error saving project materials:", error);
+      setMessage("Error saving project materials. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleMaterialMappingUpdate = (materialId: string, kbobId: string) => {
@@ -1447,6 +1446,38 @@ export default function LCACalculatorComponent(): JSX.Element {
     }
   }, [modelledMaterials, matches, kbobMaterials]);
 
+  // Update the fetchProjects function
+  const fetchProjects = async () => {
+    try {
+      setProjectsLoading(true);
+      const projects = await getProjects();
+
+      // Transform projects into options format
+      const options = projects.map((project) => ({
+        value: project.id,
+        label: project.name,
+      }));
+
+      // If no projects from server, use default options
+      if (options.length === 0) {
+        setProjectOptions(DEFAULT_PROJECT_OPTIONS);
+      } else {
+        setProjectOptions(options);
+      }
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+      // Use default options on error
+      setProjectOptions(DEFAULT_PROJECT_OPTIONS);
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  // Fetch projects on component mount
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
   return (
     <Box
       className="w-full flex flex-col md:flex-row"
@@ -1502,7 +1533,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                 value={selectedProject?.value || ""}
                 onChange={(e) => {
                   const selectedValue = e.target.value;
-                  const projectOption = PROJECT_OPTIONS.find(
+                  const projectOption = projectOptions.find(
                     (op) => op.value === selectedValue
                   );
                   if (projectOption) {
@@ -1511,11 +1542,17 @@ export default function LCACalculatorComponent(): JSX.Element {
                 }}
                 labelId="select-project"
               >
-                {PROJECT_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
+                {projectsLoading ? (
+                  <MenuItem disabled>Loading projects...</MenuItem>
+                ) : projectOptions.length === 0 ? (
+                  <MenuItem disabled>No projects available</MenuItem>
+                ) : (
+                  projectOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))
+                )}
               </MuiSelect>
             </FormControl>
           </Box>
