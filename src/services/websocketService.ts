@@ -21,10 +21,35 @@ export interface ProjectData {
   projectId: string;
   name: string;
   ifcData: {
-    materials: {
+    materials?: {
       name: string;
       volume: number;
     }[];
+    elements?: {
+      id: string;
+      element_type: string;
+      quantity: number;
+      properties: {
+        level?: string;
+        is_structural?: boolean;
+        is_external?: boolean;
+      };
+      materials: {
+        name: string;
+        volume: number;
+        unit: string;
+      }[];
+      impact?: {
+        gwp: number;
+        ubp: number;
+        penr: number;
+      };
+    }[];
+    totalImpact?: {
+      gwp: number;
+      ubp: number;
+      penr: number;
+    };
   };
   materialMappings: Record<string, string>;
 }
@@ -299,7 +324,15 @@ export async function getProjectMaterials(
 export async function saveProjectMaterials(
   projectId: string,
   data: {
-    ifcData: ProjectData["ifcData"];
+    ifcData: {
+      materials?: { name: string; volume: number }[];
+      elements?: any[];
+      totalImpact?: {
+        gwp: number;
+        ubp: number;
+        penr: number;
+      };
+    };
     materialMappings: Record<string, string>;
   }
 ): Promise<void> {

@@ -85,6 +85,7 @@ export interface ImpactResults {
   penr: number;
   modelledMaterials: number;
   unmodelledMaterials: number;
+  totalElementCount?: number;
 }
 
 export interface MaterialImpact {
