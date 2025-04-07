@@ -28,3 +28,4 @@ dist-ssr
 .env.production
 kbob_materials.db
 kbob_materials.db.wal
+.env.fastbim

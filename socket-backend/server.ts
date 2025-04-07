@@ -14,6 +14,40 @@ app.use(express.json());
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
+// Validate required environment variables
+// If MONGODB_URI is provided directly, we don't need individual credentials
+const requiredEnvVars = ["MONGODB_URI"];
+const missingEnvVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
+if (missingEnvVars.length > 0) {
+  console.error(
+    `ERROR: Missing required environment variables: ${missingEnvVars.join(
+      ", "
+    )}`
+  );
+  throw new Error(
+    `Missing required environment variables: ${missingEnvVars.join(", ")}`
+  );
+}
+
+// After validation, we can safely assert these environment variables exist
+// Ensure authSource=admin is used for MongoDB authentication
+let MONGODB_URI = process.env.MONGODB_URI as string;
+if (!MONGODB_URI.includes("authSource=")) {
+  MONGODB_URI += "?authSource=admin";
+} else if (MONGODB_URI.includes("authSource=cost")) {
+  MONGODB_URI = MONGODB_URI.replace("authSource=cost", "authSource=admin");
+}
+console.log(
+  `Using MongoDB URI with authSource=admin: ${MONGODB_URI.replace(
+    /:[^:]*@/,
+    ":****@"
+  )}`
+); // Log sanitized URI
+
+// Use defaults for username/password if not provided but needed
+const MONGODB_USERNAME = process.env.MONGODB_USERNAME || "admin";
+const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || "secure_password";
+
 // Configuration
 const config = {
   websocket: {
@@ -21,9 +55,7 @@ const config = {
   },
   mongodb: {
     enabled: true,
-    uri:
-      process.env.MONGODB_URI ||
-      "mongodb://admin:secure_password@mongodb:27017/?authSource=admin",
+    uri: MONGODB_URI,
     database: process.env.MONGODB_DATABASE || "lca",
     collections: {
       lcaResults: "lcaResults",
@@ -34,8 +66,8 @@ const config = {
     },
     qtoDatabase: "qto",
     auth: {
-      username: process.env.MONGODB_USERNAME || "admin",
-      password: process.env.MONGODB_PASSWORD || "secure_password",
+      username: MONGODB_USERNAME,
+      password: MONGODB_PASSWORD,
     },
   },
 };
@@ -102,19 +134,41 @@ function normalizeMaterialName(name: string): string {
 
 // Update the connectToMongo function
 async function connectToMongo() {
+  let client: MongoClient | null = null;
+  let db = null;
+
   try {
     console.log("Connecting to MongoDB...");
-    const client = new MongoClient(config.mongodb.uri, {
-      auth: {
-        username: config.mongodb.auth.username,
-        password: config.mongodb.auth.password,
-      },
-    });
 
-    await client.connect();
-    console.log("Connected to MongoDB successfully");
+    // Try connecting with the main URI first
+    try {
+      client = new MongoClient(MONGODB_URI);
+      await client.connect();
+      console.log("Connected to MongoDB successfully using URI");
 
-    const db = client.db(config.mongodb.database);
+      db = client.db(config.mongodb.database);
+    } catch (error: any) {
+      console.warn(`Failed to connect using URI: ${error.message}`);
+      console.log("Trying alternative connection method...");
+
+      // Try connecting with explicit auth as fallback
+      const fallbackUri = `mongodb://mongodb:27017/?authSource=admin`;
+      client = new MongoClient(fallbackUri, {
+        auth: {
+          username: "admin",
+          password: "secure_password",
+        },
+      });
+
+      await client.connect();
+      console.log("Connected to MongoDB using fallback credentials");
+
+      db = client.db(config.mongodb.database);
+    }
+
+    if (!db) {
+      throw new Error("Failed to establish database connection");
+    }
 
     // Get list of existing collections
     const collections = await db.listCollections().toArray();
@@ -212,15 +266,31 @@ wss.on("connection", (ws) => {
       if (data.type === "get_projects") {
         try {
           // Connect to MongoDB and fetch projects from QTO database
-          const client = new MongoClient(config.mongodb.uri, {
-            auth: {
-              username: config.mongodb.auth.username,
-              password: config.mongodb.auth.password,
-            },
-          });
+          let client;
+          let qtoDb;
 
-          await client.connect();
-          const qtoDb = client.db(config.mongodb.qtoDatabase);
+          try {
+            // Try main connection first
+            client = new MongoClient(MONGODB_URI);
+            await client.connect();
+            qtoDb = client.db(config.mongodb.qtoDatabase);
+          } catch (error: any) {
+            console.warn(
+              `Failed to connect using URI for projects: ${error.message}`
+            );
+
+            // Try fallback connection
+            const fallbackUri = "mongodb://mongodb:27017/?authSource=admin";
+            client = new MongoClient(fallbackUri, {
+              auth: {
+                username: "admin",
+                password: "secure_password",
+              },
+            });
+            await client.connect();
+            qtoDb = client.db(config.mongodb.qtoDatabase);
+          }
+
           const projects = (await qtoDb
             .collection("projects")
             .find({})
@@ -282,24 +352,36 @@ wss.on("connection", (ws) => {
         try {
           const { projectId } = data;
           const db = await connectToMongo();
-          const collection = db.collection(
-            config.mongodb.collections.lcaResults
-          );
 
-          // First, get the project name from QTO database
+          // Get the project name from QTO database
           let projectName = "New Project";
           let projectElements: QtoElement[] = [];
 
           try {
-            const client = new MongoClient(config.mongodb.uri, {
-              auth: {
-                username: config.mongodb.auth.username,
-                password: config.mongodb.auth.password,
-              },
-            });
+            // Try main connection first
+            let client;
+            let qtoDb;
 
-            await client.connect();
-            const qtoDb = client.db(config.mongodb.qtoDatabase);
+            try {
+              client = new MongoClient(MONGODB_URI);
+              await client.connect();
+              qtoDb = client.db(config.mongodb.qtoDatabase);
+            } catch (error: any) {
+              console.warn(
+                `Failed to connect using URI for project materials: ${error.message}`
+              );
+
+              // Try fallback connection
+              const fallbackUri = "mongodb://mongodb:27017/?authSource=admin";
+              client = new MongoClient(fallbackUri, {
+                auth: {
+                  username: "admin",
+                  password: "secure_password",
+                },
+              });
+              await client.connect();
+              qtoDb = client.db(config.mongodb.qtoDatabase);
+            }
 
             // Get project details
             const projectObjectId = new ObjectId(projectId);
@@ -380,23 +462,8 @@ wss.on("connection", (ws) => {
             console.error("Error fetching project from QTO database:", error);
           }
 
-          // Try to find existing project data in LCA database
-          const projectData = await collection.findOne({ projectId });
-
-          // If we have data in LCA database, use that
-          if (projectData) {
-            ws.send(
-              JSON.stringify({
-                type: "project_materials",
-                projectId,
-                ...projectData,
-                name: projectName,
-                messageId: data.messageId,
-              })
-            );
-          }
-          // If no data in LCA database but we have elements, aggregate materials
-          else if (projectElements && projectElements.length > 0) {
+          // Load materials from QTO database elements
+          if (projectElements && projectElements.length > 0) {
             console.log("Creating material aggregation from elements");
 
             // Extract and aggregate materials from elements
@@ -483,7 +550,7 @@ wss.on("connection", (ws) => {
               })
             );
           }
-          // If no data anywhere, return empty structure
+          // If no elements found, return empty structure
           else {
             ws.send(
               JSON.stringify({
@@ -556,15 +623,30 @@ wss.on("connection", (ws) => {
           // Now fetch all QTO elements for this project and calculate emissions
           try {
             // Connect to QTO database
-            const client = new MongoClient(config.mongodb.uri, {
-              auth: {
-                username: config.mongodb.auth.username,
-                password: config.mongodb.auth.password,
-              },
-            });
+            let client;
+            let qtoDb;
 
-            await client.connect();
-            const qtoDb = client.db(config.mongodb.qtoDatabase);
+            try {
+              // Try main connection first
+              client = new MongoClient(MONGODB_URI);
+              await client.connect();
+              qtoDb = client.db(config.mongodb.qtoDatabase);
+            } catch (error: any) {
+              console.warn(
+                `Failed to connect using URI for saving project: ${error.message}`
+              );
+
+              // Try fallback connection
+              const fallbackUri = "mongodb://mongodb:27017/?authSource=admin";
+              client = new MongoClient(fallbackUri, {
+                auth: {
+                  username: "admin",
+                  password: "secure_password",
+                },
+              });
+              await client.connect();
+              qtoDb = client.db(config.mongodb.qtoDatabase);
+            }
 
             // Convert projectId to ObjectId for query
             const projectObjectId = new ObjectId(projectId);
