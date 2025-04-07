@@ -348,8 +348,56 @@ export default function LCACalculatorComponent(): JSX.Element {
     const loadProjectMaterials = async () => {
       if (!selectedProject) {
         console.log("No project selected");
+        // Clear state if no project is selected
+        setModelledMaterials([]);
+        setMatches({});
+        setCalculatedElements([]);
+        setIfcResult({
+          projectId: "",
+          ifcData: {
+            materials: [],
+            elements: [],
+            totalImpact: { gwp: 0, ubp: 0, penr: 0 },
+          },
+          materialMappings: {},
+        });
+        setTotalImpact({
+          gwp: 0,
+          ubp: 0,
+          penr: 0,
+          modelledMaterials: 0,
+          unmodelledMaterials: 0,
+          totalElementCount: 0,
+        });
+        setLoading(false);
+        setMessage("");
         return;
       }
+
+      // Reset state before loading new project data
+      console.log(`Resetting state for new project: ${selectedProject.label}`);
+      setModelledMaterials([]);
+      setMatches({});
+      setCalculatedElements([]);
+      setIfcResult({
+        projectId: "",
+        ifcData: {
+          materials: [],
+          elements: [],
+          totalImpact: { gwp: 0, ubp: 0, penr: 0 },
+        },
+        materialMappings: {},
+      });
+      setTotalImpact({
+        gwp: 0,
+        ubp: 0,
+        penr: 0,
+        modelledMaterials: 0,
+        unmodelledMaterials: 0,
+        totalElementCount: 0,
+      });
+      setLoading(true); // Set loading state
+      setMessage(""); // Clear any previous messages
 
       try {
         console.log("Loading materials for project:", selectedProject.value);
@@ -445,6 +493,8 @@ export default function LCACalculatorComponent(): JSX.Element {
         // Reset materials to empty arrays on error
         setModelledMaterials([]);
         setMatches({});
+      } finally {
+        setLoading(false); // Ensure loading is set to false even on error
       }
     };
 
