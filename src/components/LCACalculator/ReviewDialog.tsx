@@ -120,8 +120,65 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
   const handleSubmit = async () => {
     try {
       if (onSave && projectId) {
+        // Keep the calculated elements as they are since the server will
+        // fetch the actual QTO elements from the database and calculate emissions
         const data = {
           ifcData: {
+            // Include materials for reference
+            materials: modelledMaterials
+              .map((material) => {
+                // Find if this material has a KBOB mapping
+                const matchId = matches[material.id];
+                // Calculate volume and impact based on elements that use this material
+                let volume = 0;
+                let impact = {
+                  gwp: 0,
+                  ubp: 0,
+                  penr: 0,
+                };
+
+                // Find all elements that use this material
+                calculatedElements.forEach((element) => {
+                  if (element.materials && element.impact) {
+                    element.materials.forEach((mat) => {
+                      // Normalize the material name to remove numbering
+                      const materialName = mat.name.replace(
+                        /\s*\(\d+\)\s*$/,
+                        ""
+                      );
+                      if (materialName === material.name) {
+                        // Add volume
+                        volume += mat.volume;
+
+                        // Calculate impact proportion for this material within the element
+                        const totalElementMaterialVolume =
+                          element.materials.reduce(
+                            (sum, m) => sum + m.volume,
+                            0
+                          );
+                        const materialProportion =
+                          mat.volume / totalElementMaterialVolume;
+
+                        // Add proportional impact
+                        const elemImpact = element.impact!;
+                        impact.gwp += elemImpact.gwp * materialProportion;
+                        impact.ubp += elemImpact.ubp * materialProportion;
+                        impact.penr += elemImpact.penr * materialProportion;
+                      }
+                    });
+                  }
+                });
+
+                return {
+                  id: material.id,
+                  name: material.name,
+                  matchedMaterialId: matchId,
+                  volume,
+                  impact,
+                };
+              })
+              .filter((m) => m.volume > 0),
+            // Include calculated elements for the server to reference
             elements: calculatedElements,
             totalImpact: {
               gwp: totalImpact.gwp,

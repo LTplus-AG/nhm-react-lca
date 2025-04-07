@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Grid,
   Paper,
@@ -275,28 +275,66 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
                     justifyContent: "space-between",
                     alignItems: "center",
                     mb: 2,
+                    gap: 1,
                   }}
                 >
-                  <Typography
-                    variant="h6"
-                    sx={{
-                      fontWeight: 600,
-                      color: "text.primary",
-                      fontSize: { xs: "1rem", sm: "1.1rem" },
-                    }}
-                  >
-                    {material.name}
-                  </Typography>
+                  {/* Material Name with conditional tooltip */}
+                  {(() => {
+                    const textRef = useRef<HTMLSpanElement>(null);
+                    const [isOverflowing, setIsOverflowing] = useState(false);
 
-                  <Tooltip title="Löschen">
-                    <IconButton
-                      onClick={() => onDeleteMaterial(material.id)}
-                      size="small"
-                      color="default"
-                    >
-                      <DeleteIcon fontSize="small" sx={{ color: "grey.500" }} />
-                    </IconButton>
-                  </Tooltip>
+                    useEffect(() => {
+                      const element = textRef.current;
+                      if (element) {
+                        setIsOverflowing(
+                          element.scrollWidth > element.clientWidth
+                        );
+                      }
+                    }, [material.name]);
+
+                    const typography = (
+                      <Typography
+                        ref={textRef}
+                        variant="h6"
+                        noWrap
+                        component="span"
+                        sx={{
+                          fontWeight: 600,
+                          color: "text.primary",
+                          fontSize: { xs: "1rem", sm: "1.1rem" },
+                          flexGrow: 1,
+                          flexShrink: 1,
+                          minWidth: 0,
+                          display: "block",
+                        }}
+                      >
+                        {material.name}
+                      </Typography>
+                    );
+
+                    return isOverflowing ? (
+                      <Tooltip title={material.name} enterDelay={1000}>
+                        {typography}
+                      </Tooltip>
+                    ) : (
+                      typography
+                    );
+                  })()}
+
+                  <Box sx={{ flexShrink: 0 }}>
+                    <Tooltip title="Löschen">
+                      <IconButton
+                        onClick={() => onDeleteMaterial(material.id)}
+                        size="small"
+                        color="default"
+                      >
+                        <DeleteIcon
+                          fontSize="small"
+                          sx={{ color: "grey.500" }}
+                        />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </Box>
 
                 {/* Volume Badge */}

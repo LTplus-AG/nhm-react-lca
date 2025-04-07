@@ -29,6 +29,8 @@ const config = {
       lcaResults: "lcaResults",
       materialLibrary: "materialLibrary",
       references: "references",
+      materialEmissions: "materialEmissions",
+      elementEmissions: "elementEmissions",
     },
     qtoDatabase: "qto",
     auth: {
@@ -528,6 +530,223 @@ wss.on("connection", (ws) => {
             },
             { upsert: true }
           );
+
+          // Save material emissions data
+          if (ifcData && ifcData.materials) {
+            const materialEmissionsCollection = db.collection(
+              config.mongodb.collections.materialEmissions
+            );
+
+            // Create a document with project materials and their emissions
+            await materialEmissionsCollection.updateOne(
+              { projectId },
+              {
+                $set: {
+                  projectId,
+                  materials: ifcData.materials,
+                  materialMappings,
+                  totalImpact: ifcData.totalImpact || {},
+                  lastUpdated: new Date(),
+                },
+              },
+              { upsert: true }
+            );
+          }
+
+          // Now fetch all QTO elements for this project and calculate emissions
+          try {
+            // Connect to QTO database
+            const client = new MongoClient(config.mongodb.uri, {
+              auth: {
+                username: config.mongodb.auth.username,
+                password: config.mongodb.auth.password,
+              },
+            });
+
+            await client.connect();
+            const qtoDb = client.db(config.mongodb.qtoDatabase);
+
+            // Convert projectId to ObjectId for query
+            const projectObjectId = new ObjectId(projectId);
+
+            // Get all elements for this project
+            const qtoElements = await qtoDb
+              .collection("elements")
+              .find({ project_id: projectObjectId })
+              .toArray();
+
+            console.log(
+              `Found ${qtoElements.length} QTO elements for project ${projectId}`
+            );
+
+            // Create an array to hold elements with emissions
+            const elementsWithEmissions = [];
+
+            // For each QTO element, calculate emissions based on material mappings
+            for (const qtoElement of qtoElements) {
+              if (!qtoElement.materials || qtoElement.materials.length === 0) {
+                // Skip elements without materials
+                continue;
+              }
+
+              // Create element with emissions
+              const elementWithEmissions = {
+                qto_element_id: qtoElement._id.toString(), // Store original QTO element ID as reference
+                project_id: projectId,
+                ifc_id: qtoElement.ifc_id,
+                global_id: qtoElement.global_id,
+                ifc_class: qtoElement.ifc_class,
+                name: qtoElement.name,
+                type_name: qtoElement.type_name,
+                level: qtoElement.level,
+                quantity: qtoElement.quantity,
+                original_quantity: qtoElement.original_quantity,
+                is_structural: qtoElement.is_structural,
+                is_external: qtoElement.is_external,
+                classification: qtoElement.classification,
+                materials: qtoElement.materials,
+                impact: {
+                  gwp: 0,
+                  ubp: 0,
+                  penr: 0,
+                },
+              };
+
+              // Calculate impacts for this element
+              for (const material of qtoElement.materials) {
+                // Normalize material name to find matches
+                const normalizedMaterialName = normalizeMaterialName(
+                  material.name
+                );
+
+                // Find if we have a matching material in the materialMappings
+                const matchingMaterialId = Object.entries(
+                  materialMappings
+                ).find(([id, kbobId]) => {
+                  // Find the material in ifcData.materials by id
+                  const mappedMaterial = ifcData.materials.find(
+                    (m: any) => m.id === id
+                  );
+                  if (mappedMaterial) {
+                    return (
+                      normalizeMaterialName(mappedMaterial.name) ===
+                      normalizedMaterialName
+                    );
+                  }
+                  return false;
+                });
+
+                if (matchingMaterialId) {
+                  // We found a mapping for this material
+                  const [materialId, kbobId] = matchingMaterialId;
+
+                  // Find the material in the ifcData.elements that has this materialId
+                  const matchedElement = ifcData.elements.find((element: any) =>
+                    element.materials.some(
+                      (m: any) =>
+                        normalizeMaterialName(m.name) === normalizedMaterialName
+                    )
+                  );
+
+                  if (matchedElement && matchedElement.impact) {
+                    // Calculate the material's proportion of the impact
+                    const materialVolume = parseFloat(
+                      typeof material.volume === "string"
+                        ? material.volume
+                        : material.volume?.toString() || "0"
+                    );
+
+                    const totalMaterialVolume = matchedElement.materials.reduce(
+                      (sum: number, m: any) =>
+                        sum +
+                        (typeof m.volume === "number"
+                          ? m.volume
+                          : parseFloat(m.volume?.toString() || "0")),
+                      0
+                    );
+
+                    const volumeRatio = materialVolume / totalMaterialVolume;
+
+                    // Add proportional impact to the element
+                    elementWithEmissions.impact.gwp +=
+                      matchedElement.impact.gwp * volumeRatio;
+                    elementWithEmissions.impact.ubp +=
+                      matchedElement.impact.ubp * volumeRatio;
+                    elementWithEmissions.impact.penr +=
+                      matchedElement.impact.penr * volumeRatio;
+                  }
+                }
+              }
+
+              // Add element with calculated emissions to array
+              elementsWithEmissions.push(elementWithEmissions);
+            }
+
+            // Save all elements with emissions to the elementEmissions collection
+            if (elementsWithEmissions.length > 0) {
+              const elementEmissionsCollection = db.collection(
+                config.mongodb.collections.elementEmissions
+              );
+
+              // First, remove all existing element emissions for this project
+              await elementEmissionsCollection.deleteMany({
+                project_id: projectId,
+              });
+
+              // Insert each element as a separate document
+              try {
+                // Remove _id and add QTO references before insertion
+                const elementsToInsert = elementsWithEmissions.map(
+                  (element) => {
+                    // Create clean version of element without _id field (MongoDB will generate one)
+                    const { impact, ...rest } = element;
+
+                    return {
+                      ...rest,
+                      impact: {
+                        gwp: impact.gwp,
+                        ubp: impact.ubp,
+                        penr: impact.penr,
+                      },
+                      calculated_at: new Date(),
+                    };
+                  }
+                );
+
+                // Insert all elements as individual documents
+                await elementEmissionsCollection.insertMany(elementsToInsert);
+
+                // Also store the total impact in a separate summary document
+                await elementEmissionsCollection.updateOne(
+                  { projectId, document_type: "summary" },
+                  {
+                    $set: {
+                      projectId,
+                      document_type: "summary",
+                      totalImpact: ifcData.totalImpact || {},
+                      lastUpdated: new Date(),
+                      elementCount: elementsWithEmissions.length,
+                    },
+                  },
+                  { upsert: true }
+                );
+
+                console.log(
+                  `Saved ${elementsWithEmissions.length} elements with emissions to database as individual documents`
+                );
+              } catch (insertError) {
+                console.error(
+                  "Error inserting element documents:",
+                  insertError
+                );
+              }
+            }
+
+            // Close QTO database connection
+            await client.close();
+          } catch (error) {
+            console.error("Error processing QTO elements:", error);
+          }
 
           ws.send(
             JSON.stringify({

@@ -52,6 +52,7 @@ import EditMaterialDialog from "./LCACalculator/EditMaterialDialog";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import ReviewDialog from "./LCACalculator/ReviewDialog";
 import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
+import YearToggle from "./LCACalculator/YearToggle";
 
 // Import WebSocket service
 import {
@@ -73,12 +74,6 @@ interface MaterialOption {
 
 // Add new type for sort options
 type SortOption = "volume" | "name";
-
-interface FuseResult {
-  item: KbobMaterial;
-  refIndex: number;
-  score?: number;
-}
 
 interface MaterialOptionGroup {
   label: string;
@@ -133,24 +128,11 @@ interface Element {
     penr: number;
   };
 }
-
-// Add new interface for project options
 interface ProjectOption {
   value: string;
   label: string;
 }
 
-// Add new interface for project data
-interface ProjectData {
-  projectId: string;
-  name: string;
-  ifcData: {
-    materials: IFCMaterial[];
-  };
-  materialMappings: Record<string, string>;
-}
-
-// Add instructions for the sidebar
 const Instructions = [
   {
     label: "Daten hochladen",
@@ -169,7 +151,6 @@ const Instructions = [
   },
 ];
 
-// Add default project options
 const DEFAULT_PROJECT_OPTIONS: ProjectOption[] = [
   { value: "67e391836c096bf72bc23d97", label: "Recyclingzentrum Juch-Areal" },
   {
@@ -304,56 +285,37 @@ export default function LCACalculatorComponent(): JSX.Element {
       kbobMaterials: kbobMaterials.length,
     });
 
-    const impactResults = calculator.calculateImpact(
+    // Directly use the calculator's built-in function with showPerYear support
+    return calculator.calculateGrandTotal(
       materials,
       matches,
       kbobMaterials,
+      outputFormat,
       unmodelledMaterials,
-      materialDensities
+      materialDensities,
+      undefined,
+      showPerYear
     );
-
-    console.log("Impact results in calculateGrandTotal:", impactResults);
-
-    // Get the appropriate value based on output format
-    let value: number;
-    let unit: string;
-    switch (outputFormat) {
-      case OutputFormats.GWP:
-        value = impactResults.gwp;
-        unit = "kg CO₂-eq";
-        break;
-      case OutputFormats.UBP:
-        value = impactResults.ubp;
-        unit = "UBP";
-        break;
-      case OutputFormats.PENR:
-        value = impactResults.penr;
-        unit = "kWh";
-        break;
-      default:
-        value = impactResults.gwp;
-        unit = "kg CO₂-eq";
-    }
-
-    return formatImpactValue(value, unit);
   };
 
   // Update the currentImpact calculation
   const currentImpact = useMemo(() => {
-    if (kbobMaterials.length === 0)
-      return { currentImpact: "0", unit: "kg CO₂-eq." };
+    if (kbobMaterials.length === 0) return { currentImpact: "0", unit: "" };
 
-    const results = calculator.calculateImpact(
+    const formattedValue = calculator.calculateGrandTotal(
       modelledMaterials,
       matches,
       kbobMaterials,
+      outputFormat,
       unmodelledMaterials,
-      materialDensities
+      materialDensities,
+      undefined,
+      showPerYear
     );
 
     return {
-      currentImpact: formatImpactValue(results.gwp, "kg CO₂-eq"),
-      unit: OutputFormatUnits[outputFormat],
+      currentImpact: formattedValue,
+      unit: "", // Unit is now included in the formatted value
     };
   }, [
     modelledMaterials,
@@ -805,35 +767,24 @@ export default function LCACalculatorComponent(): JSX.Element {
   const showCalculationPreview = () => {
     // Only calculate with matched materials
     const matchedMaterials = modelledMaterials.filter((m) => matches[m.id]);
-    const currentTotal = calculateGrandTotal(
+
+    // Get the correctly formatted grand total from the calculator
+    const currentTotal = calculator.calculateGrandTotal(
       matchedMaterials,
       matches,
       kbobMaterials,
-      outputFormat
+      outputFormat,
+      unmodelledMaterials,
+      materialDensities,
+      undefined,
+      showPerYear
     );
 
-    // Calculate previous total using the same formatting
-    const currentTotalValue =
-      parseFloat(currentTotal.replace(/[^\d.-]|Mio\./g, "")) *
-      (currentTotal.includes("Mio.") ? 1_000_000 : 1);
-    const previousTotalValue = currentTotalValue * 1.2;
-    const savingsValue = previousTotalValue - currentTotalValue;
-
     setImpactPreview({
-      currentImpact: calculateGrandTotal(
-        matchedMaterials,
-        matches,
-        kbobMaterials,
-        outputFormat
-      ),
+      currentImpact: currentTotal,
       newImpact: currentTotal,
-      savings: calculateGrandTotal(
-        matchedMaterials,
-        matches,
-        kbobMaterials,
-        outputFormat
-      ),
-      unit: OutputFormatUnits[outputFormat],
+      savings: currentTotal,
+      unit: "", // Unit is included in the formatted value
     });
     setConfirmationOpen(true);
   };
@@ -1182,13 +1133,13 @@ export default function LCACalculatorComponent(): JSX.Element {
                     Bisherige Emissionen:
                   </Typography>
                   <Typography fontWeight="medium">
-                    {impactPreview.currentImpact} {impactPreview.unit}
+                    {impactPreview.currentImpact}
                   </Typography>
                 </Box>
                 <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                   <Typography color="text.secondary">Update:</Typography>
                   <Typography fontWeight="medium" color="primary.main">
-                    {impactPreview.newImpact} {impactPreview.unit}
+                    {impactPreview.newImpact}
                   </Typography>
                 </Box>
                 <Box
@@ -1205,7 +1156,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                     Potentielle Einsparung:
                   </Typography>
                   <Typography fontWeight="bold" color="primary.main">
-                    {impactPreview.savings} {impactPreview.unit}
+                    {impactPreview.savings}
                   </Typography>
                 </Box>
               </Box>
@@ -1824,16 +1775,15 @@ export default function LCACalculatorComponent(): JSX.Element {
                   color="common.black"
                   fontWeight="bold"
                 >
-                  {formatImpactValue(
-                    parseFloat(
-                      calculateGrandTotal(
-                        modelledMaterials.filter((m) => matches[m.id]),
-                        matches,
-                        kbobMaterials,
-                        outputFormat
-                      ).replace(/[^\d.-]/g, "")
-                    ),
-                    OutputFormatUnits[outputFormat]
+                  {calculator.calculateGrandTotal(
+                    modelledMaterials.filter((m) => matches[m.id]),
+                    matches,
+                    kbobMaterials,
+                    outputFormat,
+                    unmodelledMaterials,
+                    materialDensities,
+                    undefined,
+                    showPerYear
                   )}
                 </Typography>
               </Box>
@@ -2011,29 +1961,10 @@ export default function LCACalculatorComponent(): JSX.Element {
 
                 {/* Add per year toggle in top right */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <FormControl component="fieldset">
-                    <RadioGroup
-                      row
-                      value={showPerYear}
-                      onChange={(e) =>
-                        setShowPerYear(e.target.value === "true")
-                      }
-                      sx={{ gap: 2 }}
-                    >
-                      <FormControlLabel
-                        value="false"
-                        control={<Radio size="small" />}
-                        label="Gesamt"
-                        sx={{ m: 0 }}
-                      />
-                      <FormControlLabel
-                        value="true"
-                        control={<Radio size="small" />}
-                        label="Pro Jahr"
-                        sx={{ m: 0 }}
-                      />
-                    </RadioGroup>
-                  </FormControl>
+                  <YearToggle
+                    showPerYear={showPerYear}
+                    onChange={(value) => setShowPerYear(value)}
+                  />
 
                   {/* "Ökobilanz überprüfen" button */}
                   <Button

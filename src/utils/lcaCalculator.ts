@@ -159,27 +159,49 @@ export class LCACalculator {
     outputFormat: OutputFormats,
     unmodelledMaterials: UnmodelledMaterial[] = [],
     materialDensities: Record<string, number> = {},
-    directValue?: number
+    directValue?: number,
+    showPerYear: boolean = false
   ): string {
-    const value =
-      directValue !== undefined
-        ? directValue
-        : this.calculateImpact(
-            materials,
-            matches,
-            kbobMaterials,
-            unmodelledMaterials,
-            materialDensities
-          )[this.getPropertyNameForFormat(outputFormat)];
+    let value: number = 0; // Default to 0
+
+    if (directValue !== undefined) {
+      // If direct value is provided, use it
+      value = directValue;
+    } else {
+      // Calculate impact and get the value for the specified format
+      const results = this.calculateImpact(
+        materials,
+        matches,
+        kbobMaterials,
+        unmodelledMaterials,
+        materialDensities
+      );
+      const propertyName = this.getPropertyNameForFormat(outputFormat);
+      value = results[propertyName] || 0; // Default to 0 if undefined
+    }
+
+    // Apply the division by 45 if showPerYear is true
+    if (showPerYear) {
+      value = value / 45;
+    }
+
+    // Get the appropriate unit for this format
+    const unit =
+      this.getUnitForFormat(outputFormat) + (showPerYear ? "/Jahr" : "");
 
     // Format in millions if value is greater than threshold
     if (value > LCACalculator.MILLION_THRESHOLD) {
       return (
-        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) + " Mio."
+        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) +
+        " Mio. " +
+        unit
       );
     }
 
-    return this.formatImpact(value, outputFormat);
+    return (
+      this.formatImpact(value, outputFormat, true) +
+      (showPerYear ? "/Jahr" : "")
+    );
   }
 
   // Helper method to get the property name for a given output format
@@ -194,7 +216,7 @@ export class LCACalculator {
       case OutputFormats.PENR:
         return "penr";
       default:
-        return "gwp"; // Default to GWP if unknown
+        return "gwp";
     }
   }
 
@@ -212,7 +234,8 @@ export class LCACalculator {
     // Get the correct property name based on the outputFormat
     const propertyName = this.getPropertyNameForFormat(outputFormat);
 
-    const value = impactResults[propertyName];
+    // Ensure we have a numeric value, default to 0 if undefined
+    const value = impactResults[propertyName] || 0;
     console.log(
       "Value extracted from impactResults:",
       value,
@@ -220,14 +243,19 @@ export class LCACalculator {
       propertyName
     );
 
+    // Get the appropriate unit
+    const unit = this.getUnitForFormat(outputFormat);
+
     if (showMillions && value > LCACalculator.MILLION_THRESHOLD) {
       const millionValue =
-        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) + " Mio.";
+        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) +
+        " Mio. " +
+        unit;
       console.log("Formatted as millions:", millionValue);
       return millionValue;
     }
 
-    const result = this.formatImpact(value, outputFormat);
+    const result = this.formatImpact(value, outputFormat, true);
     console.log("Final formatted result:", result);
     return result;
   }
