@@ -7,6 +7,11 @@ export default defineConfig(({ mode }) => {
   // Load environment variables based on the current mode.
   const env = loadEnv(mode, process.cwd(), "");
 
+  console.log(`Running in ${mode} mode`);
+  console.log(`API URL: ${env.VITE_API_URL}`);
+  console.log(`QTO API URL: ${env.VITE_QTO_API_URL}`);
+  console.log(`WebSocket URL: ${env.VITE_WEBSOCKET_URL}`);
+
   return {
     plugins: [
       react(),
@@ -23,7 +28,17 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    define: {
+      // Expose environment variables to the client
+      "import.meta.env.VITE_API_URL": JSON.stringify(env.VITE_API_URL),
+      "import.meta.env.VITE_QTO_API_URL": JSON.stringify(env.VITE_QTO_API_URL),
+      "import.meta.env.VITE_WEBSOCKET_URL": JSON.stringify(
+        env.VITE_WEBSOCKET_URL
+      ),
+    },
     server: {
+      port: parseInt(env.VITE_PORT || "5004"),
+      host: env.VITE_HOST || "localhost",
       proxy: {
         "/backend": {
           target: env.VITE_API_URL || "http://localhost:3000",
@@ -43,7 +58,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: "esnext",
-      minify: false,
+      minify: mode === "production",
       cssCodeSplit: false,
     },
   };

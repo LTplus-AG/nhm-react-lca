@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   Dialog,
   DialogTitle,
@@ -7,74 +7,29 @@ import {
   Button,
   Box,
   Typography,
+  Tabs,
+  Tab,
+  Paper,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
-  Tabs,
-  Tab,
   Chip,
-  Alert,
+  CircularProgress,
 } from "@mui/material";
-
-interface Element {
-  id: string;
-  element_type: string;
-  quantity: number;
-  properties: {
-    level?: string;
-    is_structural?: boolean;
-    is_external?: boolean;
-    ebkph?: string;
-    classification?: {
-      id: string;
-      name: string;
-      system: string;
-    };
-  };
-  materials: {
-    name: string;
-    volume: number;
-    unit: string;
-  }[];
-  impact?: {
-    gwp: number;
-    ubp: number;
-    penr: number;
-  };
-}
-
-interface GroupedElement {
-  element_type: string;
-  material: {
-    name: string;
-    volume: number;
-    unit: string;
-  };
-  count: number;
-  total_volume: number;
-  impact?: {
-    gwp: number;
-    ubp: number;
-    penr: number;
-  };
-}
+import { Material, KbobMaterial } from "../../types/lca.types";
 
 interface ReviewDialogProps {
   open: boolean;
   onClose: () => void;
   onSubmit: () => void;
-  modelledMaterials: Array<{ id: string; name?: string }>;
+  modelledMaterials: Material[];
   matches: Record<string, string>;
-  currentImpact: {
-    currentImpact: string;
-    unit: string;
-  };
+  currentImpact: { currentImpact: string; unit: string };
   projectId?: string;
-  showPerYear?: boolean;
+  showPerYear: boolean;
   totalImpact: {
     gwp: number;
     ubp: number;
@@ -83,18 +38,27 @@ interface ReviewDialogProps {
     unmodelledMaterials: number;
     totalElementCount: number;
   };
-  onSave?: (data: {
-    ifcData: {
-      elements: Element[];
-      totalImpact: {
-        gwp: number;
-        ubp: number;
-        penr: number;
-      };
+  calculatedElements: {
+    id: string;
+    element_type: string;
+    quantity: number;
+    properties: {
+      level?: string;
+      is_structural?: boolean;
+      is_external?: boolean;
     };
-    materialMappings: Record<string, string>;
-  }) => Promise<void>;
-  calculatedElements?: Element[];
+    materials: {
+      name: string;
+      volume: number;
+      unit: string;
+    }[];
+    impact?: {
+      gwp: number;
+      ubp: number;
+      penr: number;
+    };
+  }[];
+  onSave: (data: any) => Promise<void>;
 }
 
 const ReviewDialog: React.FC<ReviewDialogProps> = ({
@@ -105,191 +69,77 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
   matches,
   currentImpact,
   projectId,
-  showPerYear = false,
+  showPerYear,
   totalImpact,
+  calculatedElements,
   onSave,
-  calculatedElements = [],
 }) => {
-  const [activeTab, setActiveTab] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [tabValue, setTabValue] = React.useState(0);
+  const [saving, setSaving] = React.useState(false);
 
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue);
+    setTabValue(newValue);
   };
 
-  const handleSubmit = async () => {
+  const formatNumber = (num: number, decimals: number = 0) => {
+    return new Intl.NumberFormat("de-CH", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      useGrouping: true,
+    }).format(num);
+  };
+
+  const formatImpactValue = (value: number, unit: string) => {
+    const displayValue = showPerYear ? value / 45 : value;
+    const formattedValue = showPerYear
+      ? formatNumber(displayValue, 2)
+      : formatNumber(displayValue);
+    return `${formattedValue} ${unit}${showPerYear ? "/Jahr" : ""}`;
+  };
+
+  const handleSaveAndSubmit = async () => {
+    if (!projectId) {
+      alert("Kein Projekt ausgewählt.");
+      return;
+    }
+
     try {
-      if (onSave && projectId) {
-        // Keep the calculated elements as they are since the server will
-        // fetch the actual QTO elements from the database and calculate emissions
-        const data = {
-          ifcData: {
-            // Include materials for reference
-            materials: modelledMaterials
-              .map((material) => {
-                // Find if this material has a KBOB mapping
-                const matchId = matches[material.id];
-                // Calculate volume and impact based on elements that use this material
-                let volume = 0;
-                let impact = {
-                  gwp: 0,
-                  ubp: 0,
-                  penr: 0,
-                };
+      setSaving(true);
 
-                // Find all elements that use this material
-                calculatedElements.forEach((element) => {
-                  if (element.materials && element.impact) {
-                    element.materials.forEach((mat) => {
-                      // Normalize the material name to remove numbering
-                      const materialName = mat.name.replace(
-                        /\s*\(\d+\)\s*$/,
-                        ""
-                      );
-                      if (materialName === material.name) {
-                        // Add volume
-                        volume += mat.volume;
-
-                        // Calculate impact proportion for this material within the element
-                        const totalElementMaterialVolume =
-                          element.materials.reduce(
-                            (sum, m) => sum + m.volume,
-                            0
-                          );
-                        const materialProportion =
-                          mat.volume / totalElementMaterialVolume;
-
-                        // Add proportional impact
-                        const elemImpact = element.impact!;
-                        impact.gwp += elemImpact.gwp * materialProportion;
-                        impact.ubp += elemImpact.ubp * materialProportion;
-                        impact.penr += elemImpact.penr * materialProportion;
-                      }
-                    });
-                  }
-                });
-
-                return {
-                  id: material.id,
-                  name: material.name,
-                  matchedMaterialId: matchId,
-                  volume,
-                  impact,
-                };
-              })
-              .filter((m) => m.volume > 0),
-            // Include calculated elements for the server to reference
-            elements: calculatedElements,
-            totalImpact: {
-              gwp: totalImpact.gwp,
-              ubp: totalImpact.ubp,
-              penr: totalImpact.penr,
-            },
+      // Create a simplified data structure for saving
+      const dataToSave = {
+        ifcData: {
+          elements: calculatedElements,
+          totalImpact: {
+            gwp: totalImpact.gwp,
+            ubp: totalImpact.ubp,
+            penr: totalImpact.penr,
           },
-          materialMappings: matches,
-        };
+        },
+      };
 
-        await onSave(data);
-      }
+      // Save the data
+      await onSave(dataToSave);
 
+      // Execute the submit action after saving
       onSubmit();
       onClose();
     } catch (error) {
-      console.error("Error saving data:", error);
-      setError(
-        "Fehler beim Speichern der Daten. Bitte versuchen Sie es später erneut."
+      console.error("Error saving and submitting LCA data:", error);
+      alert(
+        "Fehler beim Speichern und Senden der Ökobilanz: " +
+          (error instanceof Error ? error.message : String(error))
       );
+    } finally {
+      setSaving(false);
     }
   };
 
-  const formatNumber = (num: number) => {
-    const displayValue = showPerYear ? num / 45 : num;
-    return new Intl.NumberFormat("de-CH", {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 0,
-      useGrouping: true,
-    }).format(displayValue);
-  };
-
-  const getGroupedElements = (): GroupedElement[] => {
-    const groupedMap = new Map<string, GroupedElement>();
-
-    calculatedElements.forEach((element) => {
-      element.materials.forEach((material) => {
-        const key = `${element.element_type}-${material.name.replace(
-          /\s*\(\d+\)\s*$/,
-          ""
-        )}`;
-
-        if (!groupedMap.has(key)) {
-          groupedMap.set(key, {
-            element_type: element.element_type,
-            material: {
-              name: material.name.replace(/\s*\(\d+\)\s*$/, ""),
-              volume: material.volume,
-              unit: material.unit,
-            },
-            count: 0,
-            total_volume: 0,
-            impact: {
-              gwp: 0,
-              ubp: 0,
-              penr: 0,
-            },
-          });
-        }
-
-        const grouped = groupedMap.get(key)!;
-        grouped.count += 1;
-        grouped.total_volume += material.volume;
-
-        if (element.impact) {
-          const totalElementMaterialVolume = element.materials.reduce(
-            (sum, m) => sum + m.volume,
-            0
-          );
-          const materialProportion =
-            material.volume / totalElementMaterialVolume;
-
-          grouped.impact!.gwp += element.impact.gwp * materialProportion;
-          grouped.impact!.ubp += element.impact.ubp * materialProportion;
-          grouped.impact!.penr += element.impact.penr * materialProportion;
-        }
-      });
-    });
-
-    return Array.from(groupedMap.values());
-  };
-
-  const getSortedGroupedElements = () => {
-    return [...getGroupedElements()].sort((a, b) => {
-      if (!a.impact || !b.impact) return 0;
-
-      if (activeTab === 0) return b.impact.gwp - a.impact.gwp;
-      if (activeTab === 1) return b.impact.ubp - a.impact.ubp;
-      return b.impact.penr - a.impact.penr;
-    });
-  };
-
-  const getElementStats = () => {
-    const stats: Record<string, { count: number; volume: number }> = {};
-
-    calculatedElements.forEach((element) => {
-      const type = element.element_type.replace("Ifc", "");
-      if (!stats[type]) {
-        stats[type] = { count: 0, volume: 0 };
-      }
-      stats[type].count += 1;
-      stats[type].volume += element.materials.reduce(
-        (sum, m) => sum + m.volume,
-        0
-      );
-    });
-
-    return stats;
-  };
-
-  const elementStats = getElementStats();
+  // Count how many materials are matched
+  const matchedCount = modelledMaterials.filter((m) => matches[m.id]).length;
+  const totalCount = modelledMaterials.length;
+  const matchPercentage =
+    totalCount > 0 ? (matchedCount / totalCount) * 100 : 0;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -297,215 +147,225 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
         <Box
           sx={{
             display: "flex",
-            alignItems: "center",
             justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 1,
+            alignItems: "center",
           }}
         >
           <Typography variant="h6">Ökobilanz überprüfen</Typography>
           <Chip
-            label={`${totalImpact.modelledMaterials} von ${
-              totalImpact.modelledMaterials + totalImpact.unmodelledMaterials
-            } Materialien zugeordnet`}
-            color="primary"
+            label={`${formatNumber(matchPercentage, 0)}% zugeordnet`}
+            color={
+              matchPercentage >= 80
+                ? "success"
+                : matchPercentage >= 50
+                ? "warning"
+                : "error"
+            }
             size="small"
-            sx={{ fontWeight: 500 }}
           />
         </Box>
       </DialogTitle>
-      <DialogContent dividers>
-        <Box sx={{ p: 2 }}>
-          <Typography variant="subtitle1" gutterBottom fontWeight="medium">
-            Gesamtübersicht
-          </Typography>
+      <DialogContent sx={{ pt: 2 }}>
+        <Tabs
+          value={tabValue}
+          onChange={handleTabChange}
+          sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}
+        >
+          <Tab label="Übersicht" />
+          <Tab label="Bauteile" />
+          <Tab label="Materialien" />
+        </Tabs>
 
-          {error && (
-            <Alert severity="error" sx={{ mb: 3 }}>
-              {error}
-            </Alert>
-          )}
-
-          <Box sx={{ display: "flex", gap: 2, mb: 4, flexWrap: "wrap" }}>
+        {/* Summary tab */}
+        {tabValue === 0 && (
+          <Box>
             <Paper
               elevation={0}
-              sx={{
-                flex: 1,
-                minWidth: "200px",
-                p: 2,
-                border: "1px solid",
-                borderColor: "divider",
-                background: "linear-gradient(to right top, #F1D900, #fff176)",
-              }}
+              sx={{ p: 3, mb: 3, border: "1px solid", borderColor: "divider" }}
             >
-              <Typography
-                variant="subtitle2"
-                color="text.secondary"
-                gutterBottom
-              >
-                Treibhauspotential (GWP)
+              <Typography variant="h6" gutterBottom>
+                Gesamtbilanz
               </Typography>
-              <Typography variant="h5" fontWeight="bold">
-                {formatNumber(totalImpact.gwp)} kg CO₂-eq
-                {showPerYear ? "/Jahr" : ""}
-              </Typography>
+
+              <Box sx={{ mt: 2 }}>
+                <Box sx={{ display: "flex", mb: 1 }}>
+                  <Typography variant="body1" sx={{ flex: 1 }}>
+                    Treibhauspotential (GWP):
+                  </Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {formatImpactValue(totalImpact.gwp, "kg CO₂-eq")}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ display: "flex", mb: 1 }}>
+                  <Typography variant="body1" sx={{ flex: 1 }}>
+                    Umweltbelastungspunkte (UBP):
+                  </Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {formatImpactValue(totalImpact.ubp, "UBP")}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ display: "flex", mb: 1 }}>
+                  <Typography variant="body1" sx={{ flex: 1 }}>
+                    Primärenergie nicht erneuerbar (PENR):
+                  </Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {formatImpactValue(totalImpact.penr, "kWh")}
+                  </Typography>
+                </Box>
+              </Box>
             </Paper>
 
             <Paper
               elevation={0}
-              sx={{
-                flex: 1,
-                minWidth: "200px",
-                p: 2,
-                border: "1px solid",
-                borderColor: "divider",
-              }}
+              sx={{ p: 3, border: "1px solid", borderColor: "divider" }}
             >
-              <Typography
-                variant="subtitle2"
-                color="text.secondary"
-                gutterBottom
-              >
-                Umweltbelastungspunkte (UBP)
+              <Typography variant="h6" gutterBottom>
+                Zusammenfassung
               </Typography>
-              <Typography variant="h5" fontWeight="medium">
-                {formatNumber(totalImpact.ubp)} UBP{showPerYear ? "/Jahr" : ""}
-              </Typography>
-            </Paper>
 
-            <Paper
-              elevation={0}
-              sx={{
-                flex: 1,
-                minWidth: "200px",
-                p: 2,
-                border: "1px solid",
-                borderColor: "divider",
-              }}
-            >
-              <Typography
-                variant="subtitle2"
-                color="text.secondary"
-                gutterBottom
-              >
-                Nicht-erneuerbare Energie (PENR)
-              </Typography>
-              <Typography variant="h5" fontWeight="medium">
-                {formatNumber(totalImpact.penr)} kWh{showPerYear ? "/Jahr" : ""}
-              </Typography>
+              <Box sx={{ mt: 2 }}>
+                <Box sx={{ display: "flex", mb: 1 }}>
+                  <Typography variant="body1" sx={{ flex: 1 }}>
+                    Gesamtanzahl Bauteile:
+                  </Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {calculatedElements.length}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ display: "flex", mb: 1 }}>
+                  <Typography variant="body1" sx={{ flex: 1 }}>
+                    Zugeordnete Materialien:
+                  </Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {matchedCount} von {totalCount} (
+                    {formatNumber(matchPercentage, 0)}%)
+                  </Typography>
+                </Box>
+              </Box>
             </Paper>
           </Box>
+        )}
 
-          <Box sx={{ mb: 4 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Bauelemente Übersicht
-            </Typography>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-              {Object.entries(elementStats).map(([type, data]) => (
-                <Chip
-                  key={type}
-                  label={`${type}: ${data.count} (${
-                    Math.round(data.volume * 100) / 100
-                  } m³)`}
-                  size="small"
-                  sx={{
-                    bgcolor: "grey.100",
-                    "& .MuiChip-label": { fontWeight: 500 },
-                  }}
-                />
-              ))}
-            </Box>
-          </Box>
-
-          <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
-            <Tabs value={activeTab} onChange={handleTabChange}>
-              <Tab label="Treibhauspotential (GWP)" />
-              <Tab label="Umweltbelastungspunkte (UBP)" />
-              <Tab label="Nicht-erneuerbare Energie (PENR)" />
-            </Tabs>
-          </Box>
-
-          {calculatedElements.length === 0 ? (
-            <Typography
-              variant="body1"
-              color="text.secondary"
-              sx={{ py: 4, textAlign: "center" }}
-            >
-              Keine Elemente verfügbar. Bitte wählen Sie ein Projekt mit
-              IFC-Daten.
-            </Typography>
-          ) : (
-            <TableContainer
-              component={Paper}
-              variant="outlined"
-              sx={{ maxHeight: 400 }}
-            >
-              <Table stickyHeader size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Element Typ</TableCell>
-                    <TableCell>Material</TableCell>
-                    <TableCell align="right">Anzahl</TableCell>
-                    <TableCell align="right">Volumen (m³)</TableCell>
+        {/* Elements tab */}
+        {tabValue === 1 && (
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Element Typ</TableCell>
+                  <TableCell>Materials</TableCell>
+                  <TableCell align="right">Volume</TableCell>
+                  <TableCell align="right">GWP (kg CO₂-eq)</TableCell>
+                  <TableCell align="right">UBP</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {calculatedElements.slice(0, 100).map((element) => (
+                  <TableRow key={element.id}>
+                    <TableCell>{element.element_type}</TableCell>
+                    <TableCell>
+                      {element.materials.map((m) => m.name).join(", ")}
+                    </TableCell>
                     <TableCell align="right">
-                      {activeTab === 0
-                        ? `GWP (kg CO₂-eq${showPerYear ? "/Jahr" : ""})`
-                        : activeTab === 1
-                        ? `UBP${showPerYear ? "/Jahr" : ""}`
-                        : `PENR (kWh${showPerYear ? "/Jahr" : ""})`}
+                      {formatNumber(element.quantity, 2)} m³
+                    </TableCell>
+                    <TableCell align="right">
+                      {element.impact
+                        ? formatNumber(
+                            showPerYear
+                              ? element.impact.gwp / 45
+                              : element.impact.gwp,
+                            showPerYear ? 2 : 0
+                          )
+                        : "-"}
+                    </TableCell>
+                    <TableCell align="right">
+                      {element.impact
+                        ? formatNumber(
+                            showPerYear
+                              ? element.impact.ubp / 45
+                              : element.impact.ubp,
+                            showPerYear ? 2 : 0
+                          )
+                        : "-"}
                     </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {getSortedGroupedElements().map((element, index) => (
-                    <TableRow key={index} hover>
-                      <TableCell>
-                        {element.element_type.replace("Ifc", "")}
-                      </TableCell>
-                      <TableCell>{element.material.name}</TableCell>
-                      <TableCell align="right">{element.count}</TableCell>
-                      <TableCell align="right">
-                        {element.total_volume.toFixed(3)}
-                      </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: "medium" }}>
-                        {element.impact
-                          ? formatNumber(
-                              activeTab === 0
-                                ? element.impact.gwp
-                                : activeTab === 1
-                                ? element.impact.ubp
-                                : element.impact.penr
-                            )
-                          : "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
+                ))}
+                {calculatedElements.length > 100 && (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">
+                      <Typography variant="body2" color="text.secondary">
+                        {calculatedElements.length - 100} weitere Elemente
+                        (insgesamt {calculatedElements.length})
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
 
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 4 }}>
-            Die Ökobilanz wird im Nachhaltigkeitsmonitoring Dashboard
-            aktualisiert. Die Berechnung basiert auf{" "}
-            {totalImpact.modelledMaterials} zugeordneten Materialien und
-            berücksichtigt {totalImpact.totalElementCount} Bauelemente mit einem
-            Gesamtvolumen von{" "}
-            {formatNumber(
-              calculatedElements.reduce(
-                (sum, el) =>
-                  sum + el.materials.reduce((mSum, m) => mSum + m.volume, 0),
-                0
-              )
-            )}{" "}
-            m³.
-          </Typography>
-        </Box>
+        {/* Materials tab */}
+        {tabValue === 2 && (
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Material</TableCell>
+                  <TableCell>Zuordnung</TableCell>
+                  <TableCell align="right">Volume</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {modelledMaterials.map((material) => (
+                  <TableRow key={material.id}>
+                    <TableCell>{material.name}</TableCell>
+                    <TableCell>
+                      {matches[material.id] ? (
+                        <Chip
+                          size="small"
+                          label="Zugeordnet"
+                          color="success"
+                          variant="outlined"
+                        />
+                      ) : (
+                        <Chip
+                          size="small"
+                          label="Nicht zugeordnet"
+                          color="error"
+                          variant="outlined"
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell align="right">
+                      {typeof material.volume === "number"
+                        ? formatNumber(material.volume, 2)
+                        : material.volume}{" "}
+                      m³
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Abbrechen</Button>
-        <Button onClick={handleSubmit} variant="contained" color="primary">
-          Daten senden
+      <DialogActions sx={{ px: 3, pb: 3 }}>
+        <Button onClick={onClose} color="inherit" variant="outlined">
+          Abbrechen
+        </Button>
+        <Button
+          onClick={handleSaveAndSubmit}
+          color="primary"
+          variant="contained"
+          disabled={saving}
+          startIcon={saving ? <CircularProgress size={16} /> : undefined}
+        >
+          {saving ? "Wird gespeichert..." : "Ans Dashboard senden"}
         </Button>
       </DialogActions>
     </Dialog>

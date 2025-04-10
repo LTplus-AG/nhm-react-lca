@@ -47,8 +47,8 @@ import { getFuzzyMatches } from "../utils/fuzzySearch";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 
-// Import the new subcomponents
-import EditMaterialDialog from "./LCACalculator/EditMaterialDialog";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import ReviewDialog from "./LCACalculator/ReviewDialog";
 import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
@@ -63,6 +63,9 @@ import {
   onStatusChange,
   saveProjectMaterials,
 } from "../services/websocketService";
+
+// Add EditMaterialDialog import near the top of the file
+import EditMaterialDialog from "./LCACalculator/EditMaterialDialog";
 
 const calculator = new LCACalculator();
 
@@ -1656,10 +1659,17 @@ export default function LCACalculatorComponent(): JSX.Element {
   const fetchProjects = async () => {
     try {
       setProjectsLoading(true);
-      const projects = await getProjects();
+
+      // Ensure WebSocket is initialized before fetching projects
+      await initWebSocket();
+
+      // Add a small delay to ensure connection is established
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const projectData = await getProjects();
 
       // Transform projects into options format
-      const options = projects.map((project) => ({
+      const options = projectData.map((project) => ({
         value: project.id,
         label: project.name,
       }));

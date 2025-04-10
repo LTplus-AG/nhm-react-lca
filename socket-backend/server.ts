@@ -4,15 +4,53 @@ import { WebSocketServer } from "ws";
 import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
 import dotenv from "dotenv";
+import { kafkaService, LcaElementData } from "./KafkaService";
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// Parse CORS origins from environment variable
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",")
+  : ["http://localhost:5004"];
+console.log("CORS Origins:", corsOrigins);
+
+// Configure CORS
+app.use(
+  cors({
+    origin: corsOrigins,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
+// Add health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "healthy" });
+});
+
 const server = createServer(app);
-const wss = new WebSocketServer({ server });
+
+// Configure WebSocket server with CORS
+const wss = new WebSocketServer({
+  server,
+  verifyClient: (info, callback) => {
+    const origin = info.origin || info.req.headers.origin;
+    if (!origin || corsOrigins.includes(origin)) {
+      callback(true);
+    } else {
+      console.log(
+        "Rejected WebSocket connection from unauthorized origin:",
+        origin
+      );
+      callback(false, 403, "Unauthorized origin");
+    }
+  },
+});
 
 // Validate required environment variables
 // If MONGODB_URI is provided directly, we don't need individual credentials
@@ -247,6 +285,67 @@ async function connectToMongo() {
   }
 }
 
+// Add this function after the connectToMongo function
+async function sendElementEmissionsToKafka(
+  elements: any[],
+  projectName: string,
+  filename: string = "unknown.ifc"
+): Promise<boolean> {
+  try {
+    if (!elements || elements.length === 0) {
+      console.log("No elements with emissions to send to Kafka");
+      return false;
+    }
+
+    console.log(
+      `Preparing to send ${elements.length} elements with LCA data to Kafka`
+    );
+
+    // Map elements to the format expected by Kafka
+    const lcaElements: LcaElementData[] = elements.map((element, index) => {
+      return {
+        id: element.qto_element_id || element._id.toString(),
+        category: element.ifc_class || "unknown",
+        level: element.level || "",
+        is_structural: element.is_structural || false,
+        materials: Array.isArray(element.materials)
+          ? element.materials.map((material: any) => ({
+              name: material.name || "Unknown",
+              volume: parseFloat(
+                typeof material.volume === "string"
+                  ? material.volume
+                  : material.volume?.toString() || "0"
+              ),
+              impact: material.impact || undefined,
+            }))
+          : [],
+        impact: element.impact || { gwp: 0, ubp: 0, penr: 0 },
+        sequence: index,
+      };
+    });
+
+    // Send data to Kafka
+    const result = await kafkaService.sendLcaBatchToKafka(
+      lcaElements,
+      projectName,
+      filename
+    );
+
+    if (result) {
+      console.log(
+        `Successfully sent ${lcaElements.length} LCA elements to Kafka`
+      );
+    } else {
+      console.error("Failed to send LCA elements to Kafka");
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Error sending element emissions to Kafka:", error);
+    return false;
+  }
+}
+
 // WebSocket connection handling
 wss.on("connection", (ws) => {
   console.log("Client connected");
@@ -259,6 +358,79 @@ wss.on("connection", (ws) => {
       // Handle ping messages
       if (data.type === "ping") {
         ws.send(JSON.stringify({ type: "pong", messageId: data.messageId }));
+        return;
+      }
+
+      // Handle Kafka status request
+      if (data.type === "get_kafka_status") {
+        ws.send(
+          JSON.stringify({
+            type: "kafka_status",
+            status: kafkaService.isKafkaConnected()
+              ? "CONNECTED"
+              : "DISCONNECTED",
+            messageId: data.messageId,
+          })
+        );
+        return;
+      }
+
+      // Handle test Kafka message request
+      if (data.type === "send_test_kafka") {
+        try {
+          // Create a test LCA element
+          const testElement = {
+            id: `test_element_${Date.now()}`,
+            category: "ifcwall",
+            level: "Level 1",
+            is_structural: true,
+            materials: [
+              {
+                name: "Concrete",
+                volume: 10,
+                impact: {
+                  gwp: 10.5,
+                  ubp: 1050,
+                  penr: 25.3,
+                },
+              },
+            ],
+            impact: {
+              gwp: 10.5,
+              ubp: 1050,
+              penr: 25.3,
+            },
+            sequence: 0,
+          };
+
+          // Send test message to Kafka
+          const result = await kafkaService.sendLcaDataToKafka(
+            testElement,
+            "Test Project",
+            "test.ifc"
+          );
+
+          ws.send(
+            JSON.stringify({
+              type: "test_kafka_response",
+              success: result,
+              message: result
+                ? "Test message sent successfully"
+                : "Failed to send test message",
+              messageId: data.messageId,
+            })
+          );
+        } catch (error) {
+          console.error("Error sending test Kafka message:", error);
+          ws.send(
+            JSON.stringify({
+              type: "test_kafka_response",
+              success: false,
+              message: `Error: ${error}`,
+              messageId: data.messageId,
+            })
+          );
+        }
         return;
       }
 
@@ -816,6 +988,31 @@ wss.on("connection", (ws) => {
                 console.log(
                   `Saved ${elementsWithEmissions.length} elements with emissions to database as individual documents`
                 );
+
+                // Get project info to extract filename
+                let projectName = "Unknown Project";
+                let filename = "unknown.ifc";
+                try {
+                  const project = await qtoDb.collection("projects").findOne({
+                    _id: projectObjectId,
+                  });
+
+                  if (project) {
+                    projectName = project.name || projectName;
+                    if (project.metadata && project.metadata.filename) {
+                      filename = project.metadata.filename;
+                    }
+                  }
+                } catch (error) {
+                  console.warn("Could not get project details:", error);
+                }
+
+                // Send all elements with emissions to Kafka
+                await sendElementEmissionsToKafka(
+                  elementsWithEmissions,
+                  projectName,
+                  filename
+                );
               } catch (insertError) {
                 console.error(
                   "Error inserting element documents:",
@@ -848,6 +1045,111 @@ wss.on("connection", (ws) => {
           );
         }
       }
+
+      // Handle sending LCA data through Kafka
+      if (data.type === "send_lca_data") {
+        try {
+          const { projectId, elements } = data;
+
+          if (!projectId || !elements || !Array.isArray(elements)) {
+            console.error("Invalid send_lca_data payload:", data);
+            ws.send(
+              JSON.stringify({
+                type: "send_lca_data_response",
+                status: "error",
+                message: "Invalid payload. Missing projectId or elements.",
+                messageId: data.messageId,
+              })
+            );
+            return;
+          }
+
+          console.log(
+            `Received request to send LCA data for project ${projectId} with ${elements.length} elements`
+          );
+
+          // Get project info to extract filename
+          let projectName = "Unknown Project";
+          let filename = "unknown.ifc";
+
+          try {
+            // Connect to QTO database
+            let client;
+            let qtoDb;
+
+            try {
+              // Try main connection first
+              client = new MongoClient(MONGODB_URI);
+              await client.connect();
+              qtoDb = client.db(config.mongodb.qtoDatabase);
+            } catch (error: any) {
+              console.warn(
+                `Failed to connect using URI for project info: ${error.message}`
+              );
+
+              // Try fallback connection
+              const fallbackUri = "mongodb://mongodb:27017/?authSource=admin";
+              client = new MongoClient(fallbackUri, {
+                auth: {
+                  username: "admin",
+                  password: "secure_password",
+                },
+              });
+              await client.connect();
+              qtoDb = client.db(config.mongodb.qtoDatabase);
+            }
+
+            // Get project details
+            const projectObjectId = new ObjectId(projectId);
+            const project = await qtoDb
+              .collection("projects")
+              .findOne({ _id: projectObjectId });
+
+            if (project) {
+              projectName = project.name || projectName;
+              if (project.metadata && project.metadata.filename) {
+                filename = project.metadata.filename;
+              }
+            }
+
+            // Close connection
+            await client.close();
+          } catch (error) {
+            console.warn("Could not get project details:", error);
+          }
+
+          // Send data to Kafka
+          const result = await kafkaService.sendLcaBatchToKafka(
+            elements,
+            projectName,
+            filename
+          );
+
+          // Send response
+          ws.send(
+            JSON.stringify({
+              type: "send_lca_data_response",
+              status: result ? "success" : "error",
+              message: result
+                ? "LCA data sent successfully"
+                : "Failed to send LCA data",
+              elementCount: elements.length,
+              messageId: data.messageId,
+            })
+          );
+        } catch (error) {
+          console.error("Error sending LCA data to Kafka:", error);
+          ws.send(
+            JSON.stringify({
+              type: "send_lca_data_response",
+              status: "error",
+              message: `Error: ${error}`,
+              messageId: data.messageId,
+            })
+          );
+        }
+        return;
+      }
     } catch (error) {
       console.error("Error processing message:", error);
       ws.send(
@@ -874,6 +1176,61 @@ wss.on("connection", (ws) => {
 
 // Start server
 const port = config.websocket.port;
-server.listen(port, () => {
+server.listen(port, async () => {
   console.log(`Server running on port ${port}`);
+
+  try {
+    // Initialize Kafka
+    console.log("Initializing Kafka connection...");
+    const kafkaInitialized = await kafkaService.initialize();
+
+    if (kafkaInitialized) {
+      console.log("Kafka initialized successfully");
+
+      // Set up Kafka consumer to listen for QTO element updates
+      const consumerCreated = await kafkaService.createConsumer(
+        async (messageData) => {
+          try {
+            // Check if this is a PROJECT_UPDATED notification
+            if (messageData.eventType === "PROJECT_UPDATED") {
+              console.log(
+                `Received PROJECT_UPDATED notification for project: ${messageData.payload.projectName} (ID: ${messageData.payload.projectId})`
+              );
+              // Handle project updates if needed
+            } else {
+              // Handle individual element messages
+              console.log("Received element data, processing...");
+              // Process element data if needed
+            }
+          } catch (error) {
+            console.error("Error processing Kafka message:", error);
+          }
+        }
+      );
+
+      if (consumerCreated) {
+        console.log("Kafka consumer created and running");
+      } else {
+        console.error("Failed to create Kafka consumer");
+      }
+    } else {
+      console.error("Failed to initialize Kafka");
+    }
+  } catch (error) {
+    console.error("Error during Kafka setup:", error);
+  }
+});
+
+// Handle graceful shutdown
+process.on("SIGINT", async () => {
+  console.log("Shutting down server...");
+
+  // Disconnect Kafka
+  await kafkaService.disconnect();
+
+  // Close the server
+  server.close(() => {
+    console.log("Server shut down");
+    process.exit(0);
+  });
 });

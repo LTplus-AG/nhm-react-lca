@@ -1,4 +1,5 @@
-import { Material } from "../types/lca.types";
+// Remove this import to prevent circular dependency
+// import { initializeKafkaService } from './kafkaService';
 
 // WebSocket connection options
 const WS_OPTIONS = {
@@ -93,6 +94,15 @@ export async function initWebSocket(): Promise<void> {
       notifyStatusChange(connectionStatus);
       reconnectAttempts = 0;
       startPingInterval();
+
+      // No need to initialize the Kafka service here anymore
+
+      notifyStatusChangeHandlers();
+
+      // Send a ping message to test connection
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
     };
 
     ws.onclose = () => {
@@ -228,7 +238,7 @@ export function onStatusChange(handler: (status: ConnectionStatus) => void) {
 /**
  * Send a request to the server and wait for response
  */
-function sendRequest(
+export function sendRequest(
   type: string,
   data: any,
   timeout = WS_OPTIONS.messageTimeout
@@ -258,7 +268,10 @@ function sendRequest(
 
     function cleanup() {
       clearTimeout(timeoutId);
-      messageHandlers.splice(messageHandlers.indexOf(handleResponse), 1);
+      const index = messageHandlers.indexOf(handleResponse);
+      if (index !== -1) {
+        messageHandlers.splice(index, 1);
+      }
     }
 
     messageHandlers.push(handleResponse);
@@ -273,7 +286,35 @@ function handleMessage(event: MessageEvent) {
   try {
     const data = JSON.parse(event.data);
     console.log("Received message:", data);
+
+    // Handle special message types
+    if (data.type === "pong") {
+      // Pong received, reset ping timeout
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+      return;
+    }
+
+    // Handle Kafka status messages
+    if (data.type === "kafka_status") {
+      console.log("Kafka status update:", data.status);
+    }
+
+    // Handle test Kafka response
+    if (data.type === "test_kafka_response") {
+      console.log("Kafka test result:", data.success);
+    }
+
+    // Emit the message to all listeners for this type
     notifyMessageHandlers(data);
+
+    // If there's a specific callback registered for this messageId, call it
+    if (data.messageId && messageHandlers[data.messageId]) {
+      messageHandlers[data.messageId](data);
+      delete messageHandlers[data.messageId];
+    }
   } catch (error) {
     console.error("Error parsing WebSocket message:", error);
   }
@@ -391,4 +432,18 @@ export function isConnected(): boolean {
  */
 export function getConnectionStatus(): ConnectionStatus {
   return connectionStatus;
+}
+
+// Add a new method to handle sending test Kafka messages
+export function sendTestKafkaMessage() {
+  return sendRequest("send_test_kafka", {
+    messageId: `test_kafka_${Date.now()}`,
+  });
+}
+
+/**
+ * Get the WebSocket instance
+ */
+export function getWebSocket(): WebSocket | null {
+  return ws;
 }

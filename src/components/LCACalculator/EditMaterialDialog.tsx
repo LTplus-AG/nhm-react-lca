@@ -1,17 +1,17 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Button,
-  Grid,
-  Typography,
   TextField,
+  Box,
+  FormControl,
+  FormLabel,
 } from "@mui/material";
 import Select from "react-select";
 import { UnmodelledMaterial, KbobMaterial } from "../../types/lca.types";
-import { ebkpData } from "../../data/ebkpData";
 
 interface EditMaterialDialogProps {
   open: boolean;
@@ -32,207 +32,136 @@ const EditMaterialDialog: React.FC<EditMaterialDialogProps> = ({
   kbobMaterials,
   kbobMaterialOptions,
 }) => {
-  const [editedMaterial, setEditedMaterial] =
-    React.useState<UnmodelledMaterial | null>(null);
+  const [editedMaterial, setEditedMaterial] = useState<UnmodelledMaterial>({
+    id: "",
+    name: "",
+    volume: "",
+    ebkp: "",
+    kbobId: "",
+  });
 
+  // Update edited material when the input material changes
   React.useEffect(() => {
-    setEditedMaterial(material);
+    if (material) {
+      setEditedMaterial({
+        ...material,
+      });
+    }
   }, [material]);
 
-  if (!editedMaterial) return null;
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
 
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    if (value === "" || /^\d*\.?\d*$/.test(value)) {
-      const numValue = value === "" ? "" : parseFloat(value);
-      if (typeof numValue !== "number" || numValue >= 0) {
+    if (name === "volume") {
+      // Convert volume to number
+      const numValue = parseFloat(value);
+      if (!isNaN(numValue) || value === "") {
         setEditedMaterial({
           ...editedMaterial,
-          volume: numValue,
+          [name]: value === "" ? "" : numValue,
         });
       }
+    } else {
+      setEditedMaterial({
+        ...editedMaterial,
+        [name]: value,
+      });
     }
   };
 
-  const ebkpOptions = ebkpData.map((ebkp) => ({
-    value: ebkp.code,
-    label: `${ebkp.code} - ${ebkp.bezeichnung}`,
-  }));
+  const handleSave = () => {
+    // Validate required fields
+    if (!editedMaterial.name || editedMaterial.volume === "") {
+      return;
+    }
 
-  const customSelectStyles = {
-    ...selectStyles,
-    menu: (base: any) => ({
-      ...base,
-      position: "absolute",
-      width: "100%",
-      zIndex: 9999,
-    }),
-    menuPortal: (base: any) => ({
-      ...base,
-      zIndex: 9999,
-    }),
-    control: (base: any) => ({
-      ...base,
-      borderRadius: "12px",
-      minHeight: "40px",
-    }),
+    onSave(editedMaterial);
   };
 
+  const handleMaterialSelect = (option: any) => {
+    setEditedMaterial({
+      ...editedMaterial,
+      kbobId: option?.value || "",
+    });
+  };
+
+  if (!material) return null;
+
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth="md"
-      fullWidth
-      PaperProps={{
-        sx: {
-          minHeight: "fit-content",
-          maxHeight: "90vh",
-          m: 2,
-          borderRadius: 2,
-          overflow: "visible",
-        },
-      }}
-    >
-      <DialogTitle sx={{ pb: 2, pt: 3, px: 3 }}>
-        Material bearbeiten
-      </DialogTitle>
-      <DialogContent sx={{ px: 3, pb: 3, overflow: "visible" }}>
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={8}>
-            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-              Material Name
-            </Typography>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Material bearbeiten</DialogTitle>
+      <DialogContent>
+        <Box sx={{ pt: 1, pb: 1 }}>
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <FormLabel htmlFor="name">Material Name</FormLabel>
             <TextField
-              fullWidth
+              id="name"
+              name="name"
               value={editedMaterial.name}
-              onChange={(e) =>
-                setEditedMaterial({
-                  ...editedMaterial,
-                  name: e.target.value,
-                })
-              }
-              required
-              size="medium"
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 1.5,
-                },
-              }}
-            />
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-              Volume (m³)
-            </Typography>
-            <TextField
+              onChange={handleChange}
               fullWidth
+              margin="dense"
+              variant="outlined"
+            />
+          </FormControl>
+
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <FormLabel htmlFor="volume">Volumen (m³)</FormLabel>
+            <TextField
+              id="volume"
+              name="volume"
+              value={editedMaterial.volume.toString()}
+              onChange={handleChange}
+              fullWidth
+              margin="dense"
+              variant="outlined"
               type="number"
-              inputProps={{
-                min: 0,
-                step: "any",
-                pattern: "[0-9]*\\.?[0-9]*",
-              }}
-              value={editedMaterial.volume}
-              onChange={handleVolumeChange}
-              required
-              size="medium"
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 1.5,
-                },
-              }}
+              inputProps={{ step: 0.1, min: 0 }}
             />
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-              EBKP Code
-            </Typography>
-            <Select
-              value={
-                editedMaterial.ebkp
-                  ? {
-                      value: editedMaterial.ebkp,
-                      label: `${editedMaterial.ebkp} - ${
-                        ebkpData.find((e) => e.code === editedMaterial.ebkp)
-                          ?.bezeichnung || ""
-                      }`,
-                    }
-                  : null
-              }
-              onChange={(newValue) =>
-                setEditedMaterial({
-                  ...editedMaterial,
-                  ebkp: newValue?.value || "",
-                })
-              }
-              options={ebkpOptions}
-              styles={customSelectStyles}
-              menuPortalTarget={document.body}
-              menuPosition="fixed"
+          </FormControl>
+
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <FormLabel htmlFor="ebkp">EBKP Code</FormLabel>
+            <TextField
+              id="ebkp"
+              name="ebkp"
+              value={editedMaterial.ebkp}
+              onChange={handleChange}
+              fullWidth
+              margin="dense"
+              variant="outlined"
             />
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-              KBOB Material
-            </Typography>
+          </FormControl>
+
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <FormLabel htmlFor="kbob-select">KBOB-Material</FormLabel>
             <Select
+              id="kbob-select"
+              options={kbobMaterialOptions}
+              styles={selectStyles}
               value={
                 editedMaterial.kbobId
                   ? {
                       value: editedMaterial.kbobId,
                       label:
                         kbobMaterials.find(
-                          (k) => k.id === editedMaterial.kbobId
-                        )?.nameDE || "",
+                          (m) => m.id === editedMaterial.kbobId
+                        )?.nameDE || editedMaterial.kbobId,
                     }
                   : null
               }
-              onChange={(newValue) =>
-                setEditedMaterial({
-                  ...editedMaterial,
-                  kbobId: newValue?.value || "",
-                })
-              }
-              options={
-                typeof kbobMaterialOptions === "function"
-                  ? kbobMaterialOptions("")
-                  : kbobMaterialOptions
-              }
-              styles={customSelectStyles}
-              menuPortalTarget={document.body}
-              menuPosition="fixed"
+              onChange={handleMaterialSelect}
+              placeholder="KBOB-Material auswählen..."
+              isClearable
             />
-          </Grid>
-        </Grid>
+          </FormControl>
+        </Box>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button
-          onClick={onClose}
-          variant="outlined"
-          sx={{
-            borderRadius: 1.5,
-            textTransform: "none",
-            minWidth: "100px",
-          }}
-        >
+      <DialogActions>
+        <Button onClick={onClose} color="inherit">
           Abbrechen
         </Button>
-        <Button
-          onClick={() => onSave(editedMaterial)}
-          variant="contained"
-          disabled={
-            !editedMaterial.name ||
-            !editedMaterial.ebkp ||
-            typeof editedMaterial.volume !== "number" ||
-            editedMaterial.volume <= 0
-          }
-          sx={{
-            borderRadius: 1.5,
-            textTransform: "none",
-            minWidth: "100px",
-          }}
-        >
+        <Button onClick={handleSave} color="primary" variant="contained">
           Speichern
         </Button>
       </DialogActions>
