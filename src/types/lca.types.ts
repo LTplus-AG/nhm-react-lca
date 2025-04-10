@@ -133,3 +133,20 @@ export interface FormData {
   ebkp: string;
   // ... other fields
 }
+
+// Add ebf property to ProjectData interface
+export interface ProjectData {
+  projectId: string;
+  name: string;
+  ifcData: {
+    materials?: { name: string; volume: number }[];
+    elements?: any[];
+    totalImpact?: {
+      gwp: number;
+      ubp: number;
+      penr: number;
+    };
+  };
+  materialMappings: Record<string, string>;
+  ebf?: number | null; // Add this property
+}

@@ -525,7 +525,14 @@ wss.on("connection", (ws) => {
           const { projectId } = data;
           const db = await connectToMongo();
 
-          // Get the project name from QTO database
+          // Try to get previously saved LCA results first, which might include EBF
+          const lcaResultsCollection = db.collection(
+            config.mongodb.collections.lcaResults
+          );
+          const savedLcaData = await lcaResultsCollection.findOne({
+            projectId,
+          });
+
           let projectName = "New Project";
           let projectElements: QtoElement[] = [];
 
@@ -710,14 +717,15 @@ wss.on("connection", (ws) => {
             console.log(`Aggregated ${materials.length} unique materials`);
             console.log("Material list:", materials);
 
-            // Return aggregated materials
+            // Return aggregated materials and saved EBF/Mappings
             ws.send(
               JSON.stringify({
                 type: "project_materials",
                 projectId,
                 name: projectName,
-                ifcData: { materials },
-                materialMappings: {},
+                ifcData: { materials }, // Send aggregated materials from QTO
+                materialMappings: savedLcaData?.materialMappings || {}, // Use saved mappings if available
+                ebf: savedLcaData?.ebf || null, // Send saved EBF value
                 messageId: data.messageId,
               })
             );
@@ -731,6 +739,7 @@ wss.on("connection", (ws) => {
                 name: projectName,
                 ifcData: { materials: [] },
                 materialMappings: {},
+                ebf: null,
                 messageId: data.messageId,
               })
             );
@@ -750,13 +759,23 @@ wss.on("connection", (ws) => {
       // Handle saving project materials
       if (data.type === "save_project_materials") {
         try {
-          const { projectId, ifcData, materialMappings } = data;
+          // Add ebfValue to the destructured data
+          const { projectId, ifcData, materialMappings, ebfValue } = data;
           const db = await connectToMongo();
           const collection = db.collection(
             config.mongodb.collections.lcaResults
           );
 
-          // Update or insert materials
+          // Parse EBF to float or null
+          const ebfNumeric = ebfValue ? parseFloat(ebfValue) : null;
+          const finalEbf =
+            ebfNumeric !== null && !isNaN(ebfNumeric) && ebfNumeric > 0
+              ? ebfNumeric
+              : null;
+
+          console.log(`Saving data for project ${projectId}, EBF: ${finalEbf}`);
+
+          // Update or insert materials, mappings, AND EBF
           await collection.updateOne(
             { projectId },
             {
@@ -764,6 +783,7 @@ wss.on("connection", (ws) => {
                 projectId,
                 ifcData,
                 materialMappings,
+                ebf: finalEbf, // Store numeric EBF or null
                 lastUpdated: new Date(),
               },
             },

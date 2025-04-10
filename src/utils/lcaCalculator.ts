@@ -4,36 +4,52 @@ import {
   UnmodelledMaterial,
   KbobMaterial,
   ImpactResults,
-  MaterialImpact,
+  OutputFormatUnits,
 } from "../types/lca.types";
+import { DisplayMode, LCADisplayHelper } from "./lcaDisplayHelper";
+import { LCAFormatter } from "./lcaFormatter";
+import { LCAImpactCalculator } from "./lcaImpactCalculator";
 
 export class LCACalculator {
-  private static readonly MILLION_THRESHOLD = 400000;
-  private static readonly NUMBER_FORMAT_DE = new Intl.NumberFormat("de-CH", {
-    useGrouping: true,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
-
-  private static readonly MILLION_FORMAT_DE = new Intl.NumberFormat("de-CH", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
-
+  /**
+   * Calculates the overall impact of materials, with options for display mode and EBF
+   */
   calculateImpact(
     materials: Material[],
     matches: Record<string, string>,
     kbobMaterials: KbobMaterial[],
     unmodelledMaterials: UnmodelledMaterial[] = [],
-    materialDensities: Record<string, number> = {}
-  ): ImpactResults {
-    const results: ImpactResults = {
-      gwp: 0,
-      ubp: 0,
-      penr: 0,
-      modelledMaterials: 0,
-      unmodelledMaterials: 0,
-    };
+    materialDensities: Record<string, number> = {},
+    displayMode: DisplayMode = "total",
+    ebf: number | null = null
+  ): {
+    gwp: number | null;
+    ubp: number | null;
+    penr: number | null;
+    modelledMaterials: number;
+    unmodelledMaterials: number;
+  } {
+    let totalGWP = 0;
+    let totalUBP = 0;
+    let totalPENR = 0;
+    let modelledMaterialCount = 0;
+    let unmodelledMaterialCount = 0;
+
+    const { divisor, error } = LCADisplayHelper.getDivisorAndSuffix(
+      displayMode,
+      ebf
+    );
+
+    // If relative mode requested but EBF invalid, return null impacts
+    if (error) {
+      return {
+        gwp: null,
+        ubp: null,
+        penr: null,
+        modelledMaterials: 0,
+        unmodelledMaterials: 0,
+      };
+    }
 
     // Create a Map for faster lookups
     const kbobMaterialMap = new Map(kbobMaterials.map((k) => [k.id, k]));
@@ -43,7 +59,7 @@ export class LCACalculator {
       console.log("Processing material:", material);
       const kbobMaterial = kbobMaterialMap.get(matches[material.id]);
       console.log("Found KBOB material:", kbobMaterial);
-      const impacts = this.calculateMaterialImpact(
+      const impacts = LCAImpactCalculator.calculateMaterialImpact(
         material,
         kbobMaterial,
         materialDensities
@@ -51,12 +67,12 @@ export class LCACalculator {
       console.log("Calculated impacts:", impacts);
 
       if (impacts.gwp > 0 || impacts.ubp > 0 || impacts.penr > 0) {
-        results.gwp += impacts.gwp;
-        results.ubp += impacts.ubp;
-        results.penr += impacts.penr;
-        results.modelledMaterials += 1;
+        totalGWP += impacts.gwp;
+        totalUBP += impacts.ubp;
+        totalPENR += impacts.penr;
+        modelledMaterialCount++;
       } else {
-        results.unmodelledMaterials += 1;
+        unmodelledMaterialCount++;
       }
     }
 
@@ -64,94 +80,46 @@ export class LCACalculator {
     for (const material of unmodelledMaterials) {
       const kbobMaterial = kbobMaterialMap.get(material.kbobId);
       if (kbobMaterial) {
-        const impacts = this.calculateMaterialImpact(
+        const impacts = LCAImpactCalculator.calculateMaterialImpact(
           material,
           kbobMaterial,
           materialDensities
         );
-        results.gwp += impacts.gwp;
-        results.ubp += impacts.ubp;
-        results.penr += impacts.penr;
-        results.unmodelledMaterials += 1;
+        totalGWP += impacts.gwp;
+        totalUBP += impacts.ubp;
+        totalPENR += impacts.penr;
+        unmodelledMaterialCount++;
       }
     }
 
-    console.log("Final results:", results);
-    return results;
-  }
-
-  calculateMaterialImpact(
-    material: Material | UnmodelledMaterial | null,
-    kbobMaterial: KbobMaterial | undefined,
-    materialDensities?: Record<string, number>
-  ): MaterialImpact {
-    if (!material || !kbobMaterial) {
-      console.log("Missing material or KBOB material:", {
-        material,
-        kbobMaterial,
-      });
-      return { gwp: 0, ubp: 0, penr: 0 };
-    }
-
-    // Use custom density if available, otherwise fallback to KBOB material density
-    const density = materialDensities?.[material.id] || kbobMaterial.density;
-    const volume = typeof material.volume === "number" ? material.volume : 0;
-    const mass = volume * density;
-
-    console.log("Calculating impact with:", {
-      density,
-      volume,
-      mass,
-      gwp: kbobMaterial.gwp,
-      ubp: kbobMaterial.ubp,
-      penr: kbobMaterial.penr,
-    });
+    // Apply divisor based on display mode
+    const finalGWP = totalGWP / divisor;
+    const finalUBP = totalUBP / divisor;
+    const finalPENR = totalPENR / divisor;
 
     return {
-      gwp: mass * kbobMaterial.gwp,
-      ubp: mass * kbobMaterial.ubp,
-      penr: mass * kbobMaterial.penr,
+      gwp: finalGWP,
+      ubp: finalUBP,
+      penr: finalPENR,
+      modelledMaterials: modelledMaterialCount,
+      unmodelledMaterials: unmodelledMaterialCount,
     };
   }
 
+  /**
+   * Format an impact value with the formatter
+   */
   formatImpact(
     value: number | string,
     type: OutputFormats,
     includeUnit = false
   ): string {
-    console.log("formatImpact called with:", { value, type, includeUnit });
-
-    if (typeof value !== "number") {
-      console.log("Value is not a number, returning 0");
-      return "0";
-    }
-
-    const formattedNumber = LCACalculator.NUMBER_FORMAT_DE.format(
-      Math.round(value)
-    );
-    console.log("Formatted number:", formattedNumber);
-
-    if (!includeUnit) return formattedNumber;
-
-    const unit = this.getUnitForFormat(type);
-    console.log("Unit for format:", unit);
-
-    return formattedNumber + unit;
+    return LCAFormatter.formatImpact(value, type, includeUnit);
   }
 
-  private getUnitForFormat(type: OutputFormats): string {
-    switch (type) {
-      case OutputFormats.GWP:
-        return " kg CO₂-eq";
-      case OutputFormats.UBP:
-        return " UBP";
-      case OutputFormats.PENR:
-        return " kWh";
-      default:
-        return "";
-    }
-  }
-
+  /**
+   * Calculates and formats a grand total value for display in the UI
+   */
   calculateGrandTotal(
     materials: Material[],
     matches: Record<string, string>,
@@ -159,104 +127,56 @@ export class LCACalculator {
     outputFormat: OutputFormats,
     unmodelledMaterials: UnmodelledMaterial[] = [],
     materialDensities: Record<string, number> = {},
-    directValue?: number,
-    showPerYear: boolean = false
+    lifetime?: number,
+    displayMode: DisplayMode = "total",
+    ebf: number | null = null
   ): string {
-    let value: number = 0; // Default to 0
-
-    if (directValue !== undefined) {
-      // If direct value is provided, use it
-      value = directValue;
-    } else {
-      // Calculate impact and get the value for the specified format
-      const results = this.calculateImpact(
-        materials,
-        matches,
-        kbobMaterials,
-        unmodelledMaterials,
-        materialDensities
-      );
-      const propertyName = this.getPropertyNameForFormat(outputFormat);
-      value = results[propertyName] || 0; // Default to 0 if undefined
-    }
-
-    // Apply the division by 45 if showPerYear is true
-    if (showPerYear) {
-      value = value / 45;
-    }
-
-    // Get the appropriate unit for this format
-    const unit =
-      this.getUnitForFormat(outputFormat) + (showPerYear ? "/Jahr" : "");
-
-    // Format in millions if value is greater than threshold
-    if (value > LCACalculator.MILLION_THRESHOLD) {
-      return (
-        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) +
-        " Mio. " +
-        unit
-      );
-    }
-
-    return (
-      this.formatImpact(value, outputFormat, true) +
-      (showPerYear ? "/Jahr" : "")
+    const { divisor, suffix, error } = LCADisplayHelper.getDivisorAndSuffix(
+      displayMode,
+      ebf
     );
-  }
 
-  // Helper method to get the property name for a given output format
-  private getPropertyNameForFormat(
-    outputFormat: OutputFormats
-  ): keyof ImpactResults {
-    switch (outputFormat) {
-      case OutputFormats.GWP:
-        return "gwp";
-      case OutputFormats.UBP:
-        return "ubp";
-      case OutputFormats.PENR:
-        return "penr";
-      default:
-        return "gwp";
+    // Handle error state for relative mode with invalid EBF
+    if (error) {
+      return error;
     }
+
+    // Calculate total impact value
+    const totalValue = LCAImpactCalculator.calculateTotalImpact(
+      materials,
+      matches,
+      kbobMaterials,
+      unmodelledMaterials,
+      materialDensities,
+      outputFormat
+    );
+
+    // Apply divisor based on display mode
+    const value = totalValue / divisor;
+
+    // Get the base unit
+    const unit = OutputFormatUnits[outputFormat] || "";
+    const finalUnit = unit + suffix;
+
+    // Format the number based on display mode
+    const formattedValue = LCADisplayHelper.formatValue(value, displayMode);
+
+    // Combine value and unit
+    return `${formattedValue} ${finalUnit}`;
   }
 
+  /**
+   * Format impact results value with appropriate unit
+   */
   formatImpactValue(
     impactResults: ImpactResults,
     outputFormat: OutputFormats,
     showMillions: boolean = true
   ): string {
-    console.log("formatImpactValue called with:", {
+    return LCAFormatter.formatImpactValue(
       impactResults,
       outputFormat,
-      showMillions,
-    });
-
-    // Get the correct property name based on the outputFormat
-    const propertyName = this.getPropertyNameForFormat(outputFormat);
-
-    // Ensure we have a numeric value, default to 0 if undefined
-    const value = impactResults[propertyName] || 0;
-    console.log(
-      "Value extracted from impactResults:",
-      value,
-      "using property:",
-      propertyName
+      showMillions
     );
-
-    // Get the appropriate unit
-    const unit = this.getUnitForFormat(outputFormat);
-
-    if (showMillions && value > LCACalculator.MILLION_THRESHOLD) {
-      const millionValue =
-        LCACalculator.MILLION_FORMAT_DE.format(value / 1_000_000) +
-        " Mio. " +
-        unit;
-      console.log("Formatted as millions:", millionValue);
-      return millionValue;
-    }
-
-    const result = this.formatImpact(value, outputFormat, true);
-    console.log("Final formatted result:", result);
-    return result;
   }
 }

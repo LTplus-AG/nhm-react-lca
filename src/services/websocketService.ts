@@ -53,6 +53,7 @@ export interface ProjectData {
     };
   };
   materialMappings: Record<string, string>;
+  ebf?: number | null;
 }
 
 // Global WebSocket instance
@@ -365,16 +366,9 @@ export async function getProjectMaterials(
 export async function saveProjectMaterials(
   projectId: string,
   data: {
-    ifcData: {
-      materials?: { name: string; volume: number }[];
-      elements?: any[];
-      totalImpact?: {
-        gwp: number;
-        ubp: number;
-        penr: number;
-      };
-    };
+    ifcData: any;
     materialMappings: Record<string, string>;
+    ebfValue?: string;
   }
 ): Promise<void> {
   try {
@@ -389,7 +383,13 @@ export async function saveProjectMaterials(
       }
     }
 
-    await sendRequest("save_project_materials", { projectId, ...data });
+    // Include ebfValue in the data sent to the server
+    await sendRequest("save_project_materials", {
+      projectId,
+      ifcData: data.ifcData,
+      materialMappings: data.materialMappings,
+      ebfValue: data.ebfValue,
+    });
   } catch (error) {
     console.error(`Error saving project materials for ${projectId}:`, error);
     throw error;

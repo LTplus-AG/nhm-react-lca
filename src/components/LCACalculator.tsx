@@ -9,20 +9,18 @@ import {
   DialogTitle,
   Divider,
   FormControl,
-  FormControlLabel,
   FormLabel,
   Grid,
   IconButton,
   MenuItem,
   Select as MuiSelect,
   Paper,
-  Radio,
-  RadioGroup,
   Step,
   StepLabel,
   Stepper,
   Tab,
   Tabs,
+  TextField,
   Tooltip,
   Typography,
   useTheme,
@@ -36,7 +34,6 @@ import {
   Material,
   OutputFormatLabels,
   OutputFormats,
-  OutputFormatUnits,
   UnmodelledMaterial,
   UnmodelledMaterials,
 } from "../types/lca.types.ts";
@@ -47,12 +44,15 @@ import { getFuzzyMatches } from "../utils/fuzzySearch";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import ReviewDialog from "./LCACalculator/ReviewDialog";
 import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
-import YearToggle from "./LCACalculator/YearToggle";
+// Replace YearToggle with DisplayModeToggle
+import DisplayModeToggle from "./LCACalculator/DisplayModeToggle";
+// Import constants
+import { BUILDING_LIFETIME_YEARS } from "../utils/constants";
+// Import DisplayMode type from helper
+import { DisplayMode } from "../utils/lcaDisplayHelper";
 
 // Import WebSocket service
 import {
@@ -82,14 +82,6 @@ interface MaterialOptionGroup {
   label: string;
   options: MaterialOption[];
 }
-
-// Update the MATERIAL_MAPPINGS to include partial matches
-const MATERIAL_MAPPINGS: Record<string, string[]> = {
-  Beton: ["Hochbaubeton"],
-  Concrete: ["Hochbaubeton"],
-  Holz: ["Brettschichtholz", "Holz"], // Changed to match partial "Holz" string
-  Wood: ["Brettschichtholz", "Holz"],
-};
 
 interface IFCMaterial {
   name: string;
@@ -242,9 +234,20 @@ export default function LCACalculatorComponent(): JSX.Element {
   // Add new state for project options
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
+  // Add a loading state specifically for the initial load
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  // Add new state for per year toggle
-  const [showPerYear, setShowPerYear] = useState(false);
+  // Replace showPerYear with displayMode
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("total");
+
+  // Add state for EBF value
+  const [ebfInput, setEbfInput] = useState<string>("");
+
+  // Memoized numeric EBF value
+  const ebfNumeric = useMemo(() => {
+    const val = parseFloat(ebfInput);
+    return !isNaN(val) && val > 0 ? val : null;
+  }, [ebfInput]);
 
   // Add state for total impact
   const [totalImpact, setTotalImpact] = useState({
@@ -256,52 +259,11 @@ export default function LCACalculatorComponent(): JSX.Element {
     totalElementCount: 0,
   });
 
-  // Add formatNumber function first
-  const formatNumber = (num: number, decimals: number = 0) => {
-    return new Intl.NumberFormat("de-CH", {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-      useGrouping: true,
-    }).format(num);
-  };
+  // Add state for confirmationStep and success message
+  const [confirmationStep, setConfirmationStep] = useState<1 | 2>(1);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
-  // Then add formatImpactValue function
-  const formatImpactValue = (value: number, unit: string) => {
-    const displayValue = showPerYear ? value / 45 : value;
-    // For per-year values, keep 2 decimal places, otherwise remove trailing zeros
-    const formattedValue = showPerYear
-      ? formatNumber(displayValue, 2)
-      : formatNumber(displayValue);
-    return `${formattedValue} ${unit}${showPerYear ? "/Jahr" : ""}`;
-  };
-
-  // Update the calculateGrandTotal function
-  const calculateGrandTotal = (
-    materials: Material[],
-    matches: Record<string, string>,
-    kbobMaterials: KbobMaterial[],
-    outputFormat: OutputFormats
-  ) => {
-    console.log("Calculate Grand Total with:", {
-      materials: materials.length,
-      matches: Object.keys(matches).length,
-      kbobMaterials: kbobMaterials.length,
-    });
-
-    // Directly use the calculator's built-in function with showPerYear support
-    return calculator.calculateGrandTotal(
-      materials,
-      matches,
-      kbobMaterials,
-      outputFormat,
-      unmodelledMaterials,
-      materialDensities,
-      undefined,
-      showPerYear
-    );
-  };
-
-  // Update the currentImpact calculation
+  // Update currentImpact calculation to use display mode
   const currentImpact = useMemo(() => {
     if (kbobMaterials.length === 0) return { currentImpact: "0", unit: "" };
 
@@ -312,8 +274,9 @@ export default function LCACalculatorComponent(): JSX.Element {
       outputFormat,
       unmodelledMaterials,
       materialDensities,
-      undefined,
-      showPerYear
+      undefined, // No direct lifetime value
+      displayMode, // Use display mode instead of showPerYear
+      ebfNumeric // Pass EBF numeric value
     );
 
     return {
@@ -327,7 +290,8 @@ export default function LCACalculatorComponent(): JSX.Element {
     unmodelledMaterials,
     materialDensities,
     outputFormat,
-    showPerYear, // Add showPerYear to dependencies
+    displayMode, // Add displayMode to dependencies
+    ebfNumeric, // Add ebfNumeric to dependencies
   ]);
 
   // Initialize WebSocket connection
@@ -355,6 +319,7 @@ export default function LCACalculatorComponent(): JSX.Element {
         setModelledMaterials([]);
         setMatches({});
         setCalculatedElements([]);
+        setEbfInput(""); // Reset EBF input when no project selected
         setIfcResult({
           projectId: "",
           ifcData: {
@@ -374,6 +339,7 @@ export default function LCACalculatorComponent(): JSX.Element {
         });
         setLoading(false);
         setMessage("");
+        setInitialLoading(false); // Ensure loading state is cleared if no project
         return;
       }
 
@@ -382,6 +348,7 @@ export default function LCACalculatorComponent(): JSX.Element {
       setModelledMaterials([]);
       setMatches({});
       setCalculatedElements([]);
+      setEbfInput(""); // Reset EBF input when no project selected
       setIfcResult({
         projectId: "",
         ifcData: {
@@ -485,10 +452,20 @@ export default function LCACalculatorComponent(): JSX.Element {
           if (projectData.materialMappings) {
             setMatches(projectData.materialMappings);
           }
+
+          // Set the EBF value from the loaded data if available
+          if (projectData.ebf !== undefined && projectData.ebf !== null) {
+            setEbfInput(projectData.ebf.toString());
+            console.log(`Loaded EBF value: ${projectData.ebf}`);
+          } else {
+            setEbfInput(""); // Reset if no EBF stored
+            console.log("No EBF value available for this project.");
+          }
         } else {
           console.warn("No valid data received from server");
           setModelledMaterials([]);
           setMatches({});
+          setEbfInput(""); // Reset EBF input on error
         }
       } catch (error) {
         console.error("Error loading project materials:", error);
@@ -496,21 +473,24 @@ export default function LCACalculatorComponent(): JSX.Element {
         // Reset materials to empty arrays on error
         setModelledMaterials([]);
         setMatches({});
+        setEbfInput(""); // Reset EBF input on error
       } finally {
         setLoading(false); // Ensure loading is set to false even on error
+        setInitialLoading(false); // Always clear initial loading state when done
       }
     };
 
     loadProjectMaterials();
   }, [selectedProject]);
 
+  // Load KBOB materials
   useEffect(() => {
     const loadKBOBMaterials = async () => {
       try {
         setKbobLoading(true);
         setKbobError(null);
         const materials = await fetchKBOBMaterials();
-        console.log("Loaded KBOB materials:", materials); // Add detailed logging
+        console.log(`Loaded ${materials.length} KBOB materials`);
         setKbobMaterials(materials);
       } catch (error) {
         console.error("Error loading KBOB materials:", error);
@@ -590,13 +570,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       }
     },
     [newUnmodelledMaterial, unmodelledMaterials]
-  );
-
-  const handleMaterialSelect = useCallback(
-    (selectedOption: SingleValue<MaterialOption>, materialId: string): void => {
-      handleMatch(materialId, selectedOption?.value);
-    },
-    [handleMatch]
   );
 
   const handleRemoveUnmodelledMaterial = (id: string) => {
@@ -749,45 +722,12 @@ export default function LCACalculatorComponent(): JSX.Element {
     [theme]
   );
 
-  const instructions = [
-    {
-      label: "1. BIM-Daten laden",
-      description:
-        "Wählen Sie das Projekt um Materialdaten aus dem IFC Modell zu laden.",
-    },
-    {
-      label: "2. KBOB-Referenzen zuordnen",
-      description:
-        "Ordnen Sie die Materialien den passenden KBOB-Referenzen zu.",
-    },
-    {
-      label: "3. Ökobilanz berechnen",
-      description:
-        "Berechnen Sie die Umweltauswirkungen Ihres Projekts und senden Sie die Resultate ans Dashboard.",
-    },
-  ];
-
-  // Calculate current step
-  const getCurrentStep = () => {
-    if (modelledMaterials.length === 0) return 0;
-    if (Object.keys(matches).length < modelledMaterials.length) return 1;
-    return 2;
-  };
-
   const outputFormatOptions = useMemo(
     () =>
       Object.entries(OutputFormatLabels).map(([value, label]) => ({
         value,
         label,
       })),
-    []
-  );
-
-  const sortOptions = useMemo(
-    () => [
-      { value: "volume", label: "Volumen" },
-      { value: "name", label: "Name" },
-    ],
     []
   );
 
@@ -807,47 +747,17 @@ export default function LCACalculatorComponent(): JSX.Element {
     try {
       await handleAbschliessen();
       setConfirmationOpen(false);
-      // Show success message
     } catch (error) {
       console.error("Error updating LCA:", error);
-      // Show error message
     } finally {
       setLoading(false);
     }
   };
 
-  // Use this instead of the missing method
-  const showCalculationPreview = () => {
-    // Only calculate with matched materials
-    const matchedMaterials = modelledMaterials.filter((m) => matches[m.id]);
-
-    // Get the correctly formatted grand total from the calculator
-    const currentTotal = calculator.calculateGrandTotal(
-      matchedMaterials,
-      matches,
-      kbobMaterials,
-      outputFormat,
-      unmodelledMaterials,
-      materialDensities,
-      undefined,
-      showPerYear
-    );
-
-    setImpactPreview({
-      currentImpact: currentTotal,
-      newImpact: currentTotal,
-      savings: currentTotal,
-      unit: "", // Unit is included in the formatted value
-    });
-    setConfirmationOpen(true);
-  };
-
-  // Simplify the findBestMatchesForAll function to just open the matching dialog
   const findBestMatchesForAll = useCallback(() => {
     console.log("=== findBestMatchesForAll STARTED ===");
     console.log("Finding best matches for all materials");
 
-    // Check if KBOB materials are loaded
     if (kbobLoading) {
       console.log("KBOB materials are still loading, showing alert");
       alert(
@@ -1097,9 +1007,6 @@ export default function LCACalculatorComponent(): JSX.Element {
   );
 
   // Update the confirmation dialog content
-  const [confirmationStep, setConfirmationStep] = useState<1 | 2>(1);
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
-
   const confirmationContent = (
     <Dialog
       open={confirmationOpen}
@@ -1447,10 +1354,6 @@ export default function LCACalculatorComponent(): JSX.Element {
     setActiveTab(newValue);
   };
 
-  const handleEditMaterial = (material: UnmodelledMaterial) => {
-    setEditingMaterial(material);
-  };
-
   const handleSaveEdit = (updatedMaterial: UnmodelledMaterial) => {
     setUnmodelledMaterials((prev) =>
       prev.map((m) => (m.id === updatedMaterial.id ? updatedMaterial : m))
@@ -1467,27 +1370,22 @@ export default function LCACalculatorComponent(): JSX.Element {
     try {
       setLoading(true);
 
-      // Save current state to database
+      // Save current state to database, including EBF value
       await saveProjectMaterials(selectedProject.value, {
         ifcData: ifcResult.ifcData,
         materialMappings: matches,
+        ebfValue: ebfInput, // Include EBF input value in saved data
       });
 
       setMessage("Data saved successfully");
       setConfirmationOpen(false);
+      setShowSuccessMessage(true);
     } catch (error) {
       console.error("Error saving project materials:", error);
       setMessage("Error saving project materials. Please try again.");
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleMaterialMappingUpdate = (materialId: string, kbobId: string) => {
-    setMatches((prev) => ({
-      ...prev,
-      [materialId]: kbobId,
-    }));
   };
 
   const handleDensityUpdate = (materialId: string, density: number) => {
@@ -1659,12 +1557,14 @@ export default function LCACalculatorComponent(): JSX.Element {
   const fetchProjects = async () => {
     try {
       setProjectsLoading(true);
+      // Set initialLoading to true to show loading spinner
+      setInitialLoading(true);
 
       // Ensure WebSocket is initialized before fetching projects
       await initWebSocket();
 
-      // Add a small delay to ensure connection is established
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Reduce delay to improve user experience
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       const projectData = await getProjects();
 
@@ -1675,15 +1575,36 @@ export default function LCACalculatorComponent(): JSX.Element {
       }));
 
       // If no projects from server, use default options
-      if (options.length === 0) {
-        setProjectOptions(DEFAULT_PROJECT_OPTIONS);
+      const finalOptions =
+        options.length === 0 ? DEFAULT_PROJECT_OPTIONS : options;
+      setProjectOptions(finalOptions);
+
+      // Automatically select the first project if none is selected
+      if (!selectedProject && finalOptions.length > 0) {
+        console.log("Auto-selecting first project:", finalOptions[0].label);
+        setSelectedProject(finalOptions[0]);
+        // The initialLoading state will be cleared in the loadProjectMaterials effect
       } else {
-        setProjectOptions(options);
+        // If we already have a selected project, clear the initialLoading state
+        setInitialLoading(false);
       }
     } catch (error) {
       console.error("Error fetching projects:", error);
       // Use default options on error
       setProjectOptions(DEFAULT_PROJECT_OPTIONS);
+
+      // Auto-select first default project on error
+      if (!selectedProject && DEFAULT_PROJECT_OPTIONS.length > 0) {
+        console.log(
+          "Auto-selecting first default project:",
+          DEFAULT_PROJECT_OPTIONS[0].label
+        );
+        setSelectedProject(DEFAULT_PROJECT_OPTIONS[0]);
+        // The initialLoading state will be cleared in the loadProjectMaterials effect
+      } else {
+        // If we already have a selected project, clear the initialLoading state
+        setInitialLoading(false);
+      }
     } finally {
       setProjectsLoading(false);
     }
@@ -1694,43 +1615,58 @@ export default function LCACalculatorComponent(): JSX.Element {
     fetchProjects();
   }, []);
 
-  // Calculate total impact based on modelled materials
+  // Update total impact calculation to use display mode
   useEffect(() => {
     if (kbobMaterials.length === 0) return;
 
+    // Use calculator.calculateImpact with displayMode and ebfNumeric
     const results = calculator.calculateImpact(
       modelledMaterials,
       matches,
       kbobMaterials,
       unmodelledMaterials,
-      materialDensities
+      materialDensities,
+      displayMode, // Pass displayMode parameter
+      ebfNumeric // Pass ebfNumeric parameter
     );
 
-    // Adjust values based on showPerYear setting
-    const adjustedResults = {
-      gwp: showPerYear ? results.gwp / 45 : results.gwp,
-      ubp: showPerYear ? results.ubp / 45 : results.ubp,
-      penr: showPerYear ? results.penr / 45 : results.penr,
+    setTotalImpact({
+      gwp: results.gwp ?? 0, // Handle possible null return for invalid EBF
+      ubp: results.ubp ?? 0,
+      penr: results.penr ?? 0,
       modelledMaterials: results.modelledMaterials,
       unmodelledMaterials: results.unmodelledMaterials,
-      totalElementCount: modelledMaterials.filter((m) => matches[m.id]).length, // Count matched elements
-    };
-
-    setTotalImpact(adjustedResults);
+      totalElementCount: modelledMaterials.filter((m) => matches[m.id]).length,
+    });
   }, [
     modelledMaterials,
     matches,
     kbobMaterials,
     unmodelledMaterials,
     materialDensities,
-    showPerYear,
+    displayMode, // Add displayMode to dependencies
+    ebfNumeric, // Add ebfNumeric to dependencies
   ]);
 
   // Add handleSubmitReview function
   const handleSubmitReview = () => {
-    // Implement your submit logic here
-    alert("Ökobilanz gesendet!");
-    setReviewDialogOpen(false);
+    // Call handleAbschliessen to save the data and submit
+    handleAbschliessen();
+  };
+
+  const handleSave = async (data: any): Promise<void> => {
+    if (!selectedProject?.value) {
+      throw new Error("No project selected");
+    }
+
+    // Include the current EBF value with the data
+    const formattedData = {
+      ...data,
+      materialMappings: matches,
+      ebfValue: ebfInput, // Include EBF input value for saving
+    };
+
+    await saveProjectMaterials(selectedProject.value, formattedData);
   };
 
   return (
@@ -1815,6 +1751,45 @@ export default function LCACalculatorComponent(): JSX.Element {
           {/* Project-dependent content */}
           {selectedProject && (
             <>
+              {/* Add EBF Input Field */}
+              <Box sx={{ mb: 3 }}>
+                <Tooltip title="Energiebezugsfläche des Projekts" arrow>
+                  <FormControl variant="outlined" fullWidth focused>
+                    <FormLabel
+                      focused
+                      htmlFor="ebf-input"
+                      sx={{ mb: 0.5, fontSize: "0.875rem" }} // Adjust styling as needed
+                    >
+                      EBF (m²)
+                    </FormLabel>
+                    <TextField
+                      id="ebf-input"
+                      size="small"
+                      type="number"
+                      value={ebfInput}
+                      onChange={(e) => setEbfInput(e.target.value)}
+                      InputProps={{
+                        inputProps: { min: 0 }, // Prevent negative numbers
+                        sx: { backgroundColor: "white" }, // Match select background
+                      }}
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          "& fieldset": {
+                            borderColor: theme.palette.divider,
+                          },
+                          "&:hover fieldset": {
+                            borderColor: theme.palette.primary.main,
+                          },
+                          "&.Mui-focused fieldset": {
+                            borderColor: theme.palette.primary.main,
+                          },
+                        },
+                      }}
+                    />
+                  </FormControl>
+                </Tooltip>
+              </Box>
+
               {/* Total Result - Restore original gradient */}
               <Box
                 sx={{
@@ -1843,7 +1818,8 @@ export default function LCACalculatorComponent(): JSX.Element {
                     unmodelledMaterials,
                     materialDensities,
                     undefined,
-                    showPerYear
+                    displayMode, // Replace showPerYear with displayMode
+                    ebfNumeric // Add ebfNumeric parameter
                   )}
                 </Typography>
               </Box>
@@ -1960,7 +1936,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                 },
               }}
             >
-              {Instructions.map((step, index) => (
+              {Instructions.map((step) => (
                 <Step key={step.label} active>
                   <StepLabel>
                     <span
@@ -2021,9 +1997,10 @@ export default function LCACalculatorComponent(): JSX.Element {
 
                 {/* Add per year toggle in top right */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <YearToggle
-                    showPerYear={showPerYear}
-                    onChange={(value) => setShowPerYear(value)}
+                  <DisplayModeToggle
+                    mode={displayMode}
+                    onChange={setDisplayMode}
+                    isEbfValid={ebfNumeric !== null}
                   />
 
                   {/* "Ökobilanz überprüfen" button */}
@@ -2433,6 +2410,22 @@ export default function LCACalculatorComponent(): JSX.Element {
                 )}
               </Paper>
             </>
+          ) : initialLoading ? (
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+                height: "100%",
+                gap: 3,
+              }}
+            >
+              <CircularProgress size={40} />
+              <Typography variant="body1" color="text.secondary">
+                Projekt wird geladen...
+              </Typography>
+            </Box>
           ) : (
             <Box
               sx={{
@@ -2454,8 +2447,6 @@ export default function LCACalculatorComponent(): JSX.Element {
           )}
         </Box>
       </Box>
-
-      {/* Replace the Review Dialog with the new component */}
       <ReviewDialog
         open={reviewDialogOpen}
         onClose={() => setReviewDialogOpen(false)}
@@ -2464,35 +2455,12 @@ export default function LCACalculatorComponent(): JSX.Element {
         matches={matches}
         currentImpact={currentImpact}
         projectId={selectedProject?.value}
-        showPerYear={showPerYear}
+        displayMode={displayMode} // ADD
+        ebfNumeric={ebfNumeric} // ADD
         totalImpact={totalImpact}
         calculatedElements={calculatedElements}
-        onSave={async (data) => {
-          if (!selectedProject?.value) {
-            throw new Error("No project selected");
-          }
-
-          // Convert the elements format to match the required interface
-          const formattedData = {
-            ifcData: {
-              elements: data.ifcData.elements,
-              totalImpact: data.ifcData.totalImpact,
-              // Include materials for backwards compatibility
-              materials: calculatedElements.flatMap((element) =>
-                element.materials.map((m) => ({
-                  name: m.name,
-                  volume: m.volume,
-                }))
-              ),
-            },
-            materialMappings: matches,
-          };
-
-          await saveProjectMaterials(selectedProject.value, formattedData);
-        }}
+        onSave={handleSave}
       />
-
-      {/* Add the bulk matching dialog to the component */}
       {bulkMatchingDialog}
     </Box>
   );

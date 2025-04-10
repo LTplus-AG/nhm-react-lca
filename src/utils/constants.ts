@@ -1,0 +1,1 @@
+export const BUILDING_LIFETIME_YEARS = 45;

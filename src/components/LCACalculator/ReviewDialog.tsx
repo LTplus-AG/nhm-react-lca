@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -19,7 +19,10 @@ import {
   Chip,
   CircularProgress,
 } from "@mui/material";
-import { Material, KbobMaterial } from "../../types/lca.types";
+import { Material, KbobMaterial, OutputFormats } from "../../types/lca.types";
+import { BUILDING_LIFETIME_YEARS } from "../../utils/constants";
+import { LCACalculator } from "../../utils/lcaCalculator";
+import { DisplayMode } from "../../utils/lcaDisplayHelper";
 
 interface ReviewDialogProps {
   open: boolean;
@@ -29,7 +32,8 @@ interface ReviewDialogProps {
   matches: Record<string, string>;
   currentImpact: { currentImpact: string; unit: string };
   projectId?: string;
-  showPerYear: boolean;
+  displayMode: DisplayMode;
+  ebfNumeric: number | null;
   totalImpact: {
     gwp: number;
     ubp: number;
@@ -59,6 +63,8 @@ interface ReviewDialogProps {
     };
   }[];
   onSave: (data: any) => Promise<void>;
+  outputFormat?: OutputFormats;
+  calculator?: LCACalculator;
 }
 
 const ReviewDialog: React.FC<ReviewDialogProps> = ({
@@ -69,19 +75,26 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
   matches,
   currentImpact,
   projectId,
-  showPerYear,
+  displayMode,
+  ebfNumeric,
   totalImpact,
   calculatedElements,
   onSave,
+  outputFormat,
+  calculator,
 }) => {
-  const [tabValue, setTabValue] = React.useState(0);
-  const [saving, setSaving] = React.useState(false);
+  const [tabValue, setTabValue] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
 
-  const formatNumber = (num: number, decimals: number = 0) => {
+  const formatNumber = (
+    num: number | null | undefined,
+    decimals: number = 0
+  ) => {
+    if (num === null || num === undefined) return "N/A";
     return new Intl.NumberFormat("de-CH", {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
@@ -89,12 +102,31 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     }).format(num);
   };
 
-  const formatImpactValue = (value: number, unit: string) => {
-    const displayValue = showPerYear ? value / 45 : value;
-    const formattedValue = showPerYear
-      ? formatNumber(displayValue, 2)
-      : formatNumber(displayValue);
-    return `${formattedValue} ${unit}${showPerYear ? "/Jahr" : ""}`;
+  const getDisplayValue = (value: number): number => {
+    if (displayMode === "relative" && ebfNumeric !== null && ebfNumeric > 0) {
+      return value / (BUILDING_LIFETIME_YEARS * ebfNumeric);
+    }
+    return value;
+  };
+
+  const getUnitSuffix = (): string => {
+    return displayMode === "relative" ? "/m²·Jahr" : "";
+  };
+
+  const getDecimalPrecision = (value: number): number => {
+    if (displayMode === "relative" || Math.abs(value) < 1) {
+      return 2;
+    } else if (Math.abs(value) < 100) {
+      return 1;
+    }
+    return 0;
+  };
+
+  const formatDisplayValue = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return "N/A";
+    const displayValue = getDisplayValue(value);
+    const decimals = getDecimalPrecision(displayValue);
+    return formatNumber(displayValue, decimals);
   };
 
   const handleSaveAndSubmit = async () => {
@@ -116,6 +148,8 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
             penr: totalImpact.penr,
           },
         },
+        // Include EBF value if available
+        ebfValue: ebfNumeric !== null ? ebfNumeric.toString() : undefined,
       };
 
       // Save the data
@@ -140,6 +174,111 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
   const totalCount = modelledMaterials.length;
   const matchPercentage =
     totalCount > 0 ? (matchedCount / totalCount) * 100 : 0;
+
+  // Summary content to show impact results
+  const summaryContent = (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        backgroundColor: "background.paper",
+        borderRadius: 1,
+        p: 3,
+      }}
+    >
+      <Typography variant="h6" component="h3" gutterBottom>
+        Gesamtbilanz
+      </Typography>
+
+      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
+        <Box sx={{ width: "30%" }}>
+          <Typography
+            variant="subtitle2"
+            sx={{ color: "text.secondary", mb: 0.5 }}
+          >
+            CO₂-eq
+          </Typography>
+          <Typography variant="h5" sx={{ fontWeight: "bold" }}>
+            {formatDisplayValue(totalImpact.gwp)} kg{getUnitSuffix()}
+          </Typography>
+        </Box>
+
+        <Box sx={{ width: "30%" }}>
+          <Typography
+            variant="subtitle2"
+            sx={{ color: "text.secondary", mb: 0.5 }}
+          >
+            UBP
+          </Typography>
+          <Typography variant="h5" sx={{ fontWeight: "bold" }}>
+            {formatDisplayValue(totalImpact.ubp)} UBP{getUnitSuffix()}
+          </Typography>
+        </Box>
+
+        <Box sx={{ width: "30%" }}>
+          <Typography
+            variant="subtitle2"
+            sx={{ color: "text.secondary", mb: 0.5 }}
+          >
+            Primärenergie nicht erneuerbar
+          </Typography>
+          <Typography variant="h5" sx={{ fontWeight: "bold" }}>
+            {formatDisplayValue(totalImpact.penr)} kWh{getUnitSuffix()}
+          </Typography>
+        </Box>
+      </Box>
+
+      <Box
+        sx={{
+          bgcolor: "background.default",
+          p: 2,
+          borderRadius: 1,
+          mt: 2,
+        }}
+      >
+        <Typography variant="subtitle2" sx={{ mb: 2 }}>
+          Übersicht
+        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Zugeordnete Materialien:
+          </Typography>
+          <Typography variant="body2" fontWeight="medium">
+            {totalImpact.modelledMaterials}
+          </Typography>
+        </Box>
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Elemente:
+          </Typography>
+          <Typography variant="body2" fontWeight="medium">
+            {totalImpact.totalElementCount}
+          </Typography>
+        </Box>
+        {ebfNumeric !== null && (
+          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              EBF:
+            </Typography>
+            <Typography variant="body2" fontWeight="medium">
+              {formatNumber(ebfNumeric, 0)} m²
+            </Typography>
+          </Box>
+        )}
+        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+          <Typography variant="body2" color="text.secondary">
+            Anzeigemodus:
+          </Typography>
+          <Typography variant="body2" fontWeight="medium">
+            {displayMode === "relative"
+              ? `pro m²·Jahr (gem. SIA 2032)`
+              : "Absolut"}
+          </Typography>
+        </Box>
+      </Box>
+    </Box>
+  );
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -177,77 +316,7 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
         </Tabs>
 
         {/* Summary tab */}
-        {tabValue === 0 && (
-          <Box>
-            <Paper
-              elevation={0}
-              sx={{ p: 3, mb: 3, border: "1px solid", borderColor: "divider" }}
-            >
-              <Typography variant="h6" gutterBottom>
-                Gesamtbilanz
-              </Typography>
-
-              <Box sx={{ mt: 2 }}>
-                <Box sx={{ display: "flex", mb: 1 }}>
-                  <Typography variant="body1" sx={{ flex: 1 }}>
-                    Treibhauspotential (GWP):
-                  </Typography>
-                  <Typography variant="body1" fontWeight="bold">
-                    {formatImpactValue(totalImpact.gwp, "kg CO₂-eq")}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: "flex", mb: 1 }}>
-                  <Typography variant="body1" sx={{ flex: 1 }}>
-                    Umweltbelastungspunkte (UBP):
-                  </Typography>
-                  <Typography variant="body1" fontWeight="bold">
-                    {formatImpactValue(totalImpact.ubp, "UBP")}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: "flex", mb: 1 }}>
-                  <Typography variant="body1" sx={{ flex: 1 }}>
-                    Primärenergie nicht erneuerbar (PENR):
-                  </Typography>
-                  <Typography variant="body1" fontWeight="bold">
-                    {formatImpactValue(totalImpact.penr, "kWh")}
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
-
-            <Paper
-              elevation={0}
-              sx={{ p: 3, border: "1px solid", borderColor: "divider" }}
-            >
-              <Typography variant="h6" gutterBottom>
-                Zusammenfassung
-              </Typography>
-
-              <Box sx={{ mt: 2 }}>
-                <Box sx={{ display: "flex", mb: 1 }}>
-                  <Typography variant="body1" sx={{ flex: 1 }}>
-                    Gesamtanzahl Bauteile:
-                  </Typography>
-                  <Typography variant="body1" fontWeight="bold">
-                    {calculatedElements.length}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: "flex", mb: 1 }}>
-                  <Typography variant="body1" sx={{ flex: 1 }}>
-                    Zugeordnete Materialien:
-                  </Typography>
-                  <Typography variant="body1" fontWeight="bold">
-                    {matchedCount} von {totalCount} (
-                    {formatNumber(matchPercentage, 0)}%)
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
-          </Box>
-        )}
+        {tabValue === 0 && summaryContent}
 
         {/* Elements tab */}
         {tabValue === 1 && (
@@ -274,22 +343,12 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
                     </TableCell>
                     <TableCell align="right">
                       {element.impact
-                        ? formatNumber(
-                            showPerYear
-                              ? element.impact.gwp / 45
-                              : element.impact.gwp,
-                            showPerYear ? 2 : 0
-                          )
+                        ? formatDisplayValue(element.impact.gwp)
                         : "-"}
                     </TableCell>
                     <TableCell align="right">
                       {element.impact
-                        ? formatNumber(
-                            showPerYear
-                              ? element.impact.ubp / 45
-                              : element.impact.ubp,
-                            showPerYear ? 2 : 0
-                          )
+                        ? formatDisplayValue(element.impact.ubp)
                         : "-"}
                     </TableCell>
                   </TableRow>
