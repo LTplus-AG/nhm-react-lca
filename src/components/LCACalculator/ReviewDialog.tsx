@@ -156,7 +156,6 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
       await onSave(dataToSave);
 
       // Execute the submit action after saving
-      onSubmit();
       onClose();
     } catch (error) {
       console.error("Error saving and submitting LCA data:", error);

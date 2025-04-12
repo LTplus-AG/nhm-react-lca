@@ -1,25 +1,43 @@
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import { MongoClient, ObjectId } from "mongodb";
+import { MongoClient, ObjectId, Db } from "mongodb";
 import cors from "cors";
 import dotenv from "dotenv";
-import { kafkaService, LcaElementData } from "./KafkaService";
+import { kafkaService, LcaElementData, KafkaMetadata } from "./KafkaService";
+import fs from "fs";
+import path from "path";
+import { seedKbobData } from "./dbSeeder";
+import { config } from "./config"; // Import shared config
 
 dotenv.config();
 
+// REMOVED local config definition
+
+// RESTORED Express app and CORS setup
 const app = express();
 
 // Parse CORS origins from environment variable
 const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",")
-  : ["http://localhost:5004"];
+      .map((o) => o.trim())
+      .filter((o) => o) // Trim and filter empty
+  : ["http://localhost:5004"]; // Default if not set
 console.log("CORS Origins:", corsOrigins);
 
 // Configure CORS
 app.use(
   cors({
-    origin: corsOrigins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      if (corsOrigins.includes("*") || corsOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      const msg =
+        "The CORS policy for this site does not allow access from the specified Origin.";
+      return callback(new Error(msg), false);
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -40,7 +58,11 @@ const wss = new WebSocketServer({
   server,
   verifyClient: (info, callback) => {
     const origin = info.origin || info.req.headers.origin;
-    if (!origin || corsOrigins.includes(origin)) {
+    if (!origin) {
+      // Allow connections with no origin (e.g. from backend services, tests)
+      return callback(true);
+    }
+    if (corsOrigins.includes("*") || corsOrigins.includes(origin)) {
       callback(true);
     } else {
       console.log(
@@ -52,63 +74,11 @@ const wss = new WebSocketServer({
   },
 });
 
-// Validate required environment variables
-// If MONGODB_URI is provided directly, we don't need individual credentials
-const requiredEnvVars = ["MONGODB_URI"];
-const missingEnvVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
-if (missingEnvVars.length > 0) {
-  console.error(
-    `ERROR: Missing required environment variables: ${missingEnvVars.join(
-      ", "
-    )}`
-  );
-  throw new Error(
-    `Missing required environment variables: ${missingEnvVars.join(", ")}`
-  );
+// Validate required environment variables from imported config
+if (!config.mongodb.uri) {
+  console.error(`ERROR: Missing required environment variable: MONGODB_URI`);
+  throw new Error(`Missing required environment variable: MONGODB_URI`);
 }
-
-// After validation, we can safely assert these environment variables exist
-// Ensure authSource=admin is used for MongoDB authentication
-let MONGODB_URI = process.env.MONGODB_URI as string;
-if (!MONGODB_URI.includes("authSource=")) {
-  MONGODB_URI += "?authSource=admin";
-} else if (MONGODB_URI.includes("authSource=cost")) {
-  MONGODB_URI = MONGODB_URI.replace("authSource=cost", "authSource=admin");
-}
-console.log(
-  `Using MongoDB URI with authSource=admin: ${MONGODB_URI.replace(
-    /:[^:]*@/,
-    ":****@"
-  )}`
-); // Log sanitized URI
-
-// Use defaults for username/password if not provided but needed
-const MONGODB_USERNAME = process.env.MONGODB_USERNAME || "admin";
-const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || "secure_password";
-
-// Configuration
-const config = {
-  websocket: {
-    port: parseInt(process.env.WEBSOCKET_PORT || "8002"),
-  },
-  mongodb: {
-    enabled: true,
-    uri: MONGODB_URI,
-    database: process.env.MONGODB_DATABASE || "lca",
-    collections: {
-      lcaResults: "lcaResults",
-      materialLibrary: "materialLibrary",
-      references: "references",
-      materialEmissions: "materialEmissions",
-      elementEmissions: "elementEmissions",
-    },
-    qtoDatabase: "qto",
-    auth: {
-      username: MONGODB_USERNAME,
-      password: MONGODB_PASSWORD,
-    },
-  },
-};
 
 // Add MongoDB error type
 interface MongoError extends Error {
@@ -124,26 +94,30 @@ interface MongoIdObject {
 interface QtoElement {
   _id: string | ObjectId;
   project_id: string | ObjectId | { $oid: string };
+  ifc_id?: string;
+  global_id?: string;
   guid?: string;
+  ifc_class?: string;
+  name?: string;
+  type_name?: string;
+  level?: string;
   element_type?: string;
-  quantity?: number;
+  quantity?: { value: number; type: string; unit: string };
+  original_quantity?: { value: number; type: string };
   original_area?: number;
   status?: string;
-  properties?: {
-    materials?: {
-      name: string;
-      volume: string | number;
-      unit?: string;
-      fraction?: number;
-    }[];
-    [key: string]: any;
-  };
+  is_structural?: boolean;
+  is_external?: boolean;
+  classification?: { id: string; name: string; system: string };
+  properties?: { [key: string]: any };
   materials?: {
     name: string;
     volume: string | number;
     unit?: string;
     fraction?: number;
   }[];
+  created_at?: Date;
+  updated_at?: Date;
   [key: string]: any;
 }
 
@@ -170,187 +144,42 @@ function normalizeMaterialName(name: string): string {
   return name.replace(/\s*\(\d+\)\s*$/, "");
 }
 
-// Update the connectToMongo function
-async function connectToMongo() {
+// Function to connect to both databases (uses imported config)
+async function connectToDatabases(): Promise<{
+  lcaDb: Db;
+  qtoDb: Db;
+  client: MongoClient;
+}> {
   let client: MongoClient | null = null;
-  let db = null;
-
   try {
     console.log("Connecting to MongoDB...");
-
-    // Try connecting with the main URI first
-    try {
-      client = new MongoClient(MONGODB_URI);
-      await client.connect();
-      console.log("Connected to MongoDB successfully using URI");
-
-      db = client.db(config.mongodb.database);
-    } catch (error: any) {
-      console.warn(`Failed to connect using URI: ${error.message}`);
-      console.log("Trying alternative connection method...");
-
-      // Try connecting with explicit auth as fallback
-      const fallbackUri = `mongodb://mongodb:27017/?authSource=admin`;
-      client = new MongoClient(fallbackUri, {
-        auth: {
-          username: "admin",
-          password: "secure_password",
-        },
-      });
-
-      await client.connect();
-      console.log("Connected to MongoDB using fallback credentials");
-
-      db = client.db(config.mongodb.database);
-    }
-
-    if (!db) {
-      throw new Error("Failed to establish database connection");
-    }
-
-    // Get list of existing collections
-    const collections = await db.listCollections().toArray();
-    const collectionNames = collections.map(
-      (col: { name: string }) => col.name
-    );
-
-    // Create collections if they don't exist
-    for (const collectionName of Object.values(config.mongodb.collections)) {
-      if (!collectionNames.includes(collectionName)) {
-        console.log(`Creating collection: ${collectionName}`);
-        await db.createCollection(collectionName);
-      } else {
-        console.log(`Collection ${collectionName} already exists`);
-      }
-    }
-
-    // Create indexes if they don't exist
-    const lcaResultsCollection = db.collection(
-      config.mongodb.collections.lcaResults
-    );
-    const materialLibraryCollection = db.collection(
-      config.mongodb.collections.materialLibrary
-    );
-    const referencesCollection = db.collection(
-      config.mongodb.collections.references
-    );
-
-    // Create indexes with error handling
-    try {
-      await lcaResultsCollection.createIndex(
-        { element_id: 1 },
-        { unique: false }
-      );
-      console.log("Created index on lcaResults.element_id");
-    } catch (error: unknown) {
-      const mongoError = error as MongoError;
-      if (mongoError.code !== 85) {
-        // Ignore duplicate key error
-        console.error("Error creating lcaResults index:", mongoError);
-      }
-    }
-
-    try {
-      await materialLibraryCollection.createIndex(
-        { name: 1 },
-        { unique: false }
-      );
-      console.log("Created index on materialLibrary.name");
-    } catch (error: unknown) {
-      const mongoError = error as MongoError;
-      if (mongoError.code !== 85) {
-        // Ignore duplicate key error
-        console.error("Error creating materialLibrary index:", mongoError);
-      }
-    }
-
-    try {
-      await referencesCollection.createIndex(
-        { reference_type: 1 },
-        { unique: false }
-      );
-      console.log("Created index on references.reference_type");
-    } catch (error: unknown) {
-      const mongoError = error as MongoError;
-      if (mongoError.code !== 85) {
-        // Ignore duplicate key error
-        console.error("Error creating references index:", mongoError);
-      }
-    }
-
-    return db;
+    client = new MongoClient(config.mongodb.uri);
+    await client.connect();
+    console.log("MongoDB Client Connected");
+    const lcaDb: Db = client.db(config.mongodb.database);
+    const qtoDb: Db = client.db(config.mongodb.qtoDatabase);
+    await seedKbobData(lcaDb);
+    console.log("Connected to LCA and QTO databases.");
+    return { lcaDb, qtoDb, client };
   } catch (error) {
-    console.error("Failed to connect to MongoDB:", error);
+    console.error("Failed to connect/seed DB:", error);
+    if (client) await client.close();
     throw error;
   }
 }
 
-// Add this function after the connectToMongo function
-async function sendElementEmissionsToKafka(
-  elements: any[],
-  projectName: string,
-  filename: string = "unknown.ifc"
-): Promise<boolean> {
-  try {
-    if (!elements || elements.length === 0) {
-      console.log("No elements with emissions to send to Kafka");
-      return false;
-    }
-
-    console.log(
-      `Preparing to send ${elements.length} elements with LCA data to Kafka`
-    );
-
-    // Map elements to the format expected by Kafka
-    const lcaElements: LcaElementData[] = elements.map((element, index) => {
-      return {
-        id: element.qto_element_id || element._id.toString(),
-        category: element.ifc_class || "unknown",
-        level: element.level || "",
-        is_structural: element.is_structural || false,
-        materials: Array.isArray(element.materials)
-          ? element.materials.map((material: any) => ({
-              name: material.name || "Unknown",
-              volume: parseFloat(
-                typeof material.volume === "string"
-                  ? material.volume
-                  : material.volume?.toString() || "0"
-              ),
-              impact: material.impact || undefined,
-            }))
-          : [],
-        impact: element.impact || { gwp: 0, ubp: 0, penr: 0 },
-        sequence: index,
-      };
-    });
-
-    // Send data to Kafka
-    const result = await kafkaService.sendLcaBatchToKafka(
-      lcaElements,
-      projectName,
-      filename
-    );
-
-    if (result) {
-      console.log(
-        `Successfully sent ${lcaElements.length} LCA elements to Kafka`
-      );
-    } else {
-      console.error("Failed to send LCA elements to Kafka");
-    }
-
-    return result;
-  } catch (error) {
-    console.error("Error sending element emissions to Kafka:", error);
-    return false;
-  }
-}
+// Add a simple in-memory store for project metadata near the top
+const projectMetadataStore: Record<
+  string,
+  { project: string; filename: string; timestamp: string; fileId: string }
+> = {};
 
 // WebSocket connection handling
 wss.on("connection", (ws) => {
   console.log("Client connected");
 
   ws.on("message", async (message) => {
+    let dbClient: MongoClient | null = null;
     try {
       const data = JSON.parse(message.toString());
       console.log("Received message:", data);
@@ -379,7 +208,7 @@ wss.on("connection", (ws) => {
       if (data.type === "send_test_kafka") {
         try {
           // Create a test LCA element
-          const testElement = {
+          const testElement: LcaElementData = {
             id: `test_element_${Date.now()}`,
             category: "ifcwall",
             level: "Level 1",
@@ -403,11 +232,20 @@ wss.on("connection", (ws) => {
             sequence: 0,
           };
 
-          // Send test message to Kafka
-          const result = await kafkaService.sendLcaDataToKafka(
-            testElement,
-            "Test Project",
-            "test.ifc"
+          // Create placeholder metadata for the test message
+          const testKafkaMetadata: KafkaMetadata = {
+            project: "Test Project",
+            filename: "test.ifc",
+            timestamp: new Date().toISOString(),
+            fileId: `test_${Date.now()}`, // Corrected Date usage
+          };
+
+          // Corrected: Send test message using the service and metadata object
+          const testTotals = { totalGwp: 0, totalUbp: 0, totalPenr: 0 };
+          const result = await kafkaService.sendLcaBatchToKafka(
+            [testElement],
+            testKafkaMetadata,
+            testTotals
           );
 
           ws.send(
@@ -443,7 +281,7 @@ wss.on("connection", (ws) => {
 
           try {
             // Try main connection first
-            client = new MongoClient(MONGODB_URI);
+            client = new MongoClient(config.mongodb.uri);
             await client.connect();
             qtoDb = client.db(config.mongodb.qtoDatabase);
           } catch (error: any) {
@@ -523,10 +361,11 @@ wss.on("connection", (ws) => {
       if (data.type === "get_project_materials") {
         try {
           const { projectId } = data;
-          const db = await connectToMongo();
+          const { lcaDb, qtoDb, client } = await connectToDatabases();
+          dbClient = client;
 
           // Try to get previously saved LCA results first, which might include EBF
-          const lcaResultsCollection = db.collection(
+          const lcaResultsCollection = lcaDb.collection(
             config.mongodb.collections.lcaResults
           );
           const savedLcaData = await lcaResultsCollection.findOne({
@@ -542,7 +381,7 @@ wss.on("connection", (ws) => {
             let qtoDb;
 
             try {
-              client = new MongoClient(MONGODB_URI);
+              client = new MongoClient(config.mongodb.uri);
               await client.connect();
               qtoDb = client.db(config.mongodb.qtoDatabase);
             } catch (error: any) {
@@ -580,18 +419,24 @@ wss.on("connection", (ws) => {
               // Try first with ObjectId
               projectElements = (await qtoDb
                 .collection("elements")
-                .find({ project_id: projectObjectId })
+                .find({
+                  project_id: projectObjectId,
+                  status: "active", // Only use elements that have been approved
+                })
                 .toArray()) as QtoElement[];
 
-              // If no elements found, try with string version
+              // If the first query didn't return any elements, try with string ID
               if (projectElements.length === 0) {
-                console.log(
-                  "No elements found with ObjectId, trying with string project_id"
-                );
                 projectElements = (await qtoDb
                   .collection("elements")
-                  .find({ project_id: projectId })
+                  .find({
+                    project_id: projectId,
+                    status: "active", // Only use elements that have been approved
+                  })
                   .toArray()) as QtoElement[];
+                console.log(
+                  `Found ${projectElements.length} elements using string project_id`
+                );
               }
 
               // If still no elements found, try with the project_id as an object with $oid field
@@ -601,7 +446,10 @@ wss.on("connection", (ws) => {
                 );
                 projectElements = (await qtoDb
                   .collection("elements")
-                  .find({ project_id: { $exists: true } })
+                  .find({
+                    project_id: { $exists: true },
+                    status: "active", // Only use elements that have been approved
+                  })
                   .toArray()) as QtoElement[];
 
                 // Filter the elements to match only those with matching project_id
@@ -624,8 +472,22 @@ wss.on("connection", (ws) => {
               }
 
               console.log(
-                `Found ${projectElements.length} elements for project ${projectName}`
+                `Found ${projectElements.length} active elements for project ${projectName}`
               );
+
+              // Also check for pending elements that were excluded
+              const pendingElements = await qtoDb
+                .collection("elements")
+                .countDocuments({
+                  project_id: projectObjectId,
+                  status: "pending",
+                });
+
+              if (pendingElements > 0) {
+                console.log(
+                  `NOTE: Skipped ${pendingElements} pending elements that haven't been approved yet for project ${projectName}`
+                );
+              }
 
               // Log sample element to help debugging
               if (projectElements.length > 0) {
@@ -753,445 +615,465 @@ wss.on("connection", (ws) => {
               messageId: data.messageId,
             })
           );
+        } finally {
+          if (dbClient) {
+            await dbClient.close();
+          }
         }
       }
 
       // Handle saving project materials
       if (data.type === "save_project_materials") {
+        console.log(
+          `>>> ENTERING save_project_materials handler. Message ID: ${
+            data.messageId
+          }, Project ID: ${
+            data.projectId
+          }, Timestamp: ${new Date().toISOString()}`
+        );
+        const { projectId, ifcData, materialMappings, ebfValue } = data;
+        if (!projectId) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Missing projectId",
+              messageId: data.messageId,
+            })
+          );
+          return;
+        }
+
+        const { lcaDb, qtoDb, client } = await connectToDatabases();
+        dbClient = client;
+
+        // Fetch QTO Project Metadata
+        let kafkaMetadata: KafkaMetadata | null = null;
         try {
-          // Add ebfValue to the destructured data
-          const { projectId, ifcData, materialMappings, ebfValue } = data;
-          const db = await connectToMongo();
-          const collection = db.collection(
-            config.mongodb.collections.lcaResults
-          );
-
-          // Parse EBF to float or null
-          const ebfNumeric = ebfValue ? parseFloat(ebfValue) : null;
-          const finalEbf =
-            ebfNumeric !== null && !isNaN(ebfNumeric) && ebfNumeric > 0
-              ? ebfNumeric
-              : null;
-
-          console.log(`Saving data for project ${projectId}, EBF: ${finalEbf}`);
-
-          // Update or insert materials, mappings, AND EBF
-          await collection.updateOne(
-            { projectId },
+          const qtoProject = await qtoDb.collection("projects").findOne(
+            { _id: new ObjectId(projectId) },
             {
-              $set: {
-                projectId,
-                ifcData,
-                materialMappings,
-                ebf: finalEbf, // Store numeric EBF or null
-                lastUpdated: new Date(),
+              projection: {
+                name: 1,
+                metadata: 1,
+                created_at: 1,
+                updated_at: 1,
               },
-            },
-            { upsert: true }
+            }
           );
-
-          // Save material emissions data
-          if (ifcData && ifcData.materials) {
-            const materialEmissionsCollection = db.collection(
-              config.mongodb.collections.materialEmissions
-            );
-
-            // Create a document with project materials and their emissions
-            await materialEmissionsCollection.updateOne(
-              { projectId },
-              {
-                $set: {
-                  projectId,
-                  materials: ifcData.materials,
-                  materialMappings,
-                  totalImpact: ifcData.totalImpact || {},
-                  lastUpdated: new Date(),
-                },
-              },
-              { upsert: true }
+          if (qtoProject) {
+            const fileProcessingTimestamp =
+              qtoProject.metadata?.fileProcessingTimestamp ||
+              qtoProject.updated_at ||
+              qtoProject.created_at ||
+              new Date();
+            kafkaMetadata = {
+              project: qtoProject.name || `Project_${projectId}`,
+              filename: qtoProject.metadata?.filename || "unknown.ifc",
+              timestamp: new Date(fileProcessingTimestamp).toISOString(),
+              fileId: qtoProject.metadata?.file_id || projectId.toString(),
+            };
+          } else {
+            console.error(
+              `QTO Project metadata not found for ID: ${projectId}`
             );
           }
+        } catch (error) {
+          console.error(`Error fetching QTO project metadata: ${error}`);
+        }
 
-          // Now fetch all QTO elements for this project and calculate emissions
-          try {
-            // Connect to QTO database
-            let client;
-            let qtoDb;
+        if (!kafkaMetadata) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Failed to fetch project metadata for Kafka message.",
+              messageId: data.messageId,
+            })
+          );
+          return;
+        }
 
-            try {
-              // Try main connection first
-              client = new MongoClient(MONGODB_URI);
-              await client.connect();
-              qtoDb = client.db(config.mongodb.qtoDatabase);
-            } catch (error: any) {
-              console.warn(
-                `Failed to connect using URI for saving project: ${error.message}`
-              );
-
-              // Try fallback connection
-              const fallbackUri = "mongodb://mongodb:27017/?authSource=admin";
-              client = new MongoClient(fallbackUri, {
-                auth: {
-                  username: "admin",
-                  password: "secure_password",
-                },
-              });
-              await client.connect();
-              qtoDb = client.db(config.mongodb.qtoDatabase);
-            }
-
-            // Convert projectId to ObjectId for query
-            const projectObjectId = new ObjectId(projectId);
-
-            // Get all elements for this project
-            const qtoElements = await qtoDb
-              .collection("elements")
-              .find({ project_id: projectObjectId })
-              .toArray();
-
-            console.log(
-              `Found ${qtoElements.length} QTO elements for project ${projectId}`
-            );
-
-            // Create an array to hold elements with emissions
-            const elementsWithEmissions = [];
-
-            // For each QTO element, calculate emissions based on material mappings
-            for (const qtoElement of qtoElements) {
-              if (!qtoElement.materials || qtoElement.materials.length === 0) {
-                // Skip elements without materials
-                continue;
-              }
-
-              // Create element with emissions
-              const elementWithEmissions = {
-                qto_element_id: qtoElement._id.toString(), // Store original QTO element ID as reference
-                project_id: projectId,
-                ifc_id: qtoElement.ifc_id,
-                global_id: qtoElement.global_id,
-                ifc_class: qtoElement.ifc_class,
-                name: qtoElement.name,
-                type_name: qtoElement.type_name,
-                level: qtoElement.level,
-                quantity: qtoElement.quantity,
-                original_quantity: qtoElement.original_quantity,
-                is_structural: qtoElement.is_structural,
-                is_external: qtoElement.is_external,
-                classification: qtoElement.classification,
-                materials: qtoElement.materials,
-                impact: {
+        // Save LCA Results
+        const lcaResultsCollection = lcaDb.collection(
+          config.mongodb.collections.lcaResults
+        );
+        const ebfNumeric = ebfValue ? parseFloat(ebfValue) : null;
+        const finalEbf =
+          ebfNumeric !== null && !isNaN(ebfNumeric) && ebfNumeric > 0
+            ? ebfNumeric
+            : null;
+        await lcaResultsCollection.updateOne(
+          { projectId },
+          {
+            $set: {
+              projectId,
+              ifcData: {
+                // Store calculated impacts and materials used for LCA
+                materials: ifcData?.materials || [],
+                totalImpact: ifcData?.totalImpact || {
                   gwp: 0,
                   ubp: 0,
                   penr: 0,
                 },
-              };
+              },
+              materialMappings: materialMappings || {},
+              ebf: finalEbf,
+              lastUpdated: new Date(),
+            },
+          },
+          { upsert: true }
+        );
+        console.log(
+          `Saved/Updated LCA results summary for project ${projectId}`
+        );
 
-              // Calculate impacts for this element
-              for (const material of qtoElement.materials) {
-                // Normalize material name to find matches
-                const normalizedMaterialName = normalizeMaterialName(
-                  material.name
-                );
+        // --- Refactored Emission Calculation: Per Material Instance ---
+        const qtoElements = await qtoDb
+          .collection("elements")
+          .find<QtoElement>({
+            project_id: new ObjectId(projectId),
+            status: "active",
+          })
+          .toArray();
+        console.log(
+          `Found ${qtoElements.length} active QTO elements for emission calculation.`
+        );
 
-                // Find if we have a matching material in the materialMappings
-                const matchingMaterialId = Object.entries(
-                  materialMappings
-                ).find(([id, kbobId]) => {
-                  // Find the material in ifcData.materials by id
-                  const mappedMaterial = ifcData.materials.find(
-                    (m: any) => m.id === id
-                  );
-                  if (mappedMaterial) {
-                    return (
-                      normalizeMaterialName(mappedMaterial.name) ===
-                      normalizedMaterialName
-                    );
-                  }
-                  return false;
-                });
+        const materialInstancesWithEmissions: any[] = []; // New array for material instances
+        const materialLibrary = await lcaDb
+          .collection("materialLibrary")
+          .find({})
+          .toArray();
+        const kbobMap = new Map(materialLibrary.map((m) => [m.id, m]));
 
-                if (matchingMaterialId) {
-                  // We found a mapping for this material
-                  const [materialId, kbobId] = matchingMaterialId;
+        let totalGwp = 0,
+          totalUbp = 0,
+          totalPenr = 0;
 
-                  // Find the material in the ifcData.elements that has this materialId
-                  const matchedElement = ifcData.elements.find((element: any) =>
-                    element.materials.some(
-                      (m: any) =>
-                        normalizeMaterialName(m.name) === normalizedMaterialName
-                    )
-                  );
+        for (const qtoElement of qtoElements) {
+          const materialsInElement = qtoElement.materials || [];
+          const elementGlobalId = qtoElement.global_id; // Get element's global ID
+          const elementIdStr = qtoElement._id.toString(); // Get element's MongoDB ID
+          let materialSequence = 0; // Initialize sequence counter for this element
 
-                  if (matchedElement && matchedElement.impact) {
-                    // Calculate the material's proportion of the impact
-                    const materialVolume = parseFloat(
-                      typeof material.volume === "string"
-                        ? material.volume
-                        : material.volume?.toString() || "0"
-                    );
-
-                    const totalMaterialVolume = matchedElement.materials.reduce(
-                      (sum: number, m: any) =>
-                        sum +
-                        (typeof m.volume === "number"
-                          ? m.volume
-                          : parseFloat(m.volume?.toString() || "0")),
-                      0
-                    );
-
-                    const volumeRatio = materialVolume / totalMaterialVolume;
-
-                    // Add proportional impact to the element
-                    elementWithEmissions.impact.gwp +=
-                      matchedElement.impact.gwp * volumeRatio;
-                    elementWithEmissions.impact.ubp +=
-                      matchedElement.impact.ubp * volumeRatio;
-                    elementWithEmissions.impact.penr +=
-                      matchedElement.impact.penr * volumeRatio;
-                  }
-                }
-              }
-
-              // Add element with calculated emissions to array
-              elementsWithEmissions.push(elementWithEmissions);
-            }
-
-            // Save all elements with emissions to the elementEmissions collection
-            if (elementsWithEmissions.length > 0) {
-              const elementEmissionsCollection = db.collection(
-                config.mongodb.collections.elementEmissions
-              );
-
-              // First, remove all existing element emissions for this project
-              await elementEmissionsCollection.deleteMany({
-                project_id: projectId,
-              });
-
-              // Insert each element as a separate document
-              try {
-                // Remove _id and add QTO references before insertion
-                const elementsToInsert = elementsWithEmissions.map(
-                  (element) => {
-                    // Create clean version of element without _id field (MongoDB will generate one)
-                    const { impact, ...rest } = element;
-
-                    return {
-                      ...rest,
-                      impact: {
-                        gwp: impact.gwp,
-                        ubp: impact.ubp,
-                        penr: impact.penr,
-                      },
-                      calculated_at: new Date(),
-                    };
-                  }
-                );
-
-                // Insert all elements as individual documents
-                await elementEmissionsCollection.insertMany(elementsToInsert);
-
-                // Also store the total impact in a separate summary document
-                await elementEmissionsCollection.updateOne(
-                  { projectId, document_type: "summary" },
-                  {
-                    $set: {
-                      projectId,
-                      document_type: "summary",
-                      totalImpact: ifcData.totalImpact || {},
-                      lastUpdated: new Date(),
-                      elementCount: elementsWithEmissions.length,
-                    },
-                  },
-                  { upsert: true }
-                );
-
-                console.log(
-                  `Saved ${elementsWithEmissions.length} elements with emissions to database as individual documents`
-                );
-
-                // Get project info to extract filename
-                let projectName = "Unknown Project";
-                let filename = "unknown.ifc";
-                try {
-                  const project = await qtoDb.collection("projects").findOne({
-                    _id: projectObjectId,
-                  });
-
-                  if (project) {
-                    projectName = project.name || projectName;
-                    if (project.metadata && project.metadata.filename) {
-                      filename = project.metadata.filename;
-                    }
-                  }
-                } catch (error) {
-                  console.warn("Could not get project details:", error);
-                }
-
-                // Send all elements with emissions to Kafka
-                await sendElementEmissionsToKafka(
-                  elementsWithEmissions,
-                  projectName,
-                  filename
-                );
-              } catch (insertError) {
-                console.error(
-                  "Error inserting element documents:",
-                  insertError
-                );
-              }
-            }
-
-            // Close QTO database connection
-            await client.close();
-          } catch (error) {
-            console.error("Error processing QTO elements:", error);
+          if (
+            !Array.isArray(materialsInElement) ||
+            materialsInElement.length === 0
+          ) {
+            console.log(
+              `  [Elem: ${elementIdStr}] No materials array found or empty, skipping.`
+            );
+            continue; // Skip elements without materials
           }
+
+          for (const material of materialsInElement) {
+            if (!material || typeof material.name !== "string") {
+              console.log(
+                `  [Elem: ${elementIdStr}] Skipping invalid material entry:`,
+                material
+              );
+              continue; // Skip invalid material entries
+            }
+
+            const normalizedQtoMatName = normalizeMaterialName(material.name);
+            let mappedKbobId: string | null = null;
+            let materialImpact = { gwp: 0, ubp: 0, penr: 0 }; // Impact for this specific material instance
+
+            // Log material being processed
+            console.log(
+              `  [Elem: ${elementIdStr} / ${
+                elementGlobalId || "No GlobalID"
+              }] Processing material: '${
+                material.name
+              }' (Normalized QTO: '${normalizedQtoMatName}')`
+            );
+
+            // Find KBOB mapping
+            for (const [currentModelMatId, kbobId] of Object.entries(
+              materialMappings || {}
+            )) {
+              const normalizedModelMatId =
+                normalizeMaterialName(currentModelMatId);
+              if (normalizedModelMatId === normalizedQtoMatName) {
+                mappedKbobId = kbobId as string;
+                console.log(
+                  `    --> Match found! Mapped KBOB ID: ${mappedKbobId}`
+                );
+                break;
+              }
+            }
+
+            // Calculate impact if mapped
+            if (mappedKbobId) {
+              const kbobMat = kbobMap.get(mappedKbobId);
+              if (kbobMat) {
+                const volume = parseFloat(material.volume?.toString() || "0");
+                const density = kbobMat.density || 0;
+                if (
+                  !isNaN(volume) &&
+                  volume > 0 &&
+                  !isNaN(density) &&
+                  density > 0
+                ) {
+                  const mass = volume * density;
+                  materialImpact.gwp = mass * (kbobMat.gwp || 0);
+                  materialImpact.ubp = mass * (kbobMat.ubp || 0);
+                  materialImpact.penr = mass * (kbobMat.penr || 0);
+                  console.log(
+                    `    --> Calculated Impacts: GWP=${materialImpact.gwp.toFixed(
+                      2
+                    )}, UBP=${materialImpact.ubp.toFixed(
+                      2
+                    )}, PENR=${materialImpact.penr.toFixed(2)}`
+                  );
+                  // Add to totals
+                  totalGwp += materialImpact.gwp;
+                  totalUbp += materialImpact.ubp;
+                  totalPenr += materialImpact.penr;
+                } else {
+                  console.log(
+                    `    --> Skipping calculation: Invalid volume (${volume}) or density (${density}).`
+                  );
+                }
+              } else {
+                console.log(
+                  `    --> KBOB data not found in kbobMap for mapped ID: ${mappedKbobId}`
+                );
+              }
+            } else {
+              console.log(`    --> No KBOB mapping found.`);
+            }
+
+            // Add material instance to the list
+            materialInstancesWithEmissions.push({
+              element_id: elementIdStr, // Original element MongoDB ID
+              global_id: elementGlobalId, // Original element GlobalID (prioritized for Kafka ID)
+              ifc_class: qtoElement.ifc_class,
+              level: qtoElement.level,
+              is_structural: qtoElement.is_structural,
+              material_name: material.name, // Specific material name
+              material_volume: parseFloat(material.volume?.toString() || "0"),
+              kbob_id: mappedKbobId || "UNKNOWN_KBOB", // KBOB ID for this material
+              impact: materialImpact, // Calculated impact for this material instance
+              sequence: materialSequence++, // Assign and increment sequence for this material
+            });
+          } // End loop through materials in element
+        } // End loop through elements
+
+        console.log(
+          `Processed ${materialInstancesWithEmissions.length} material instances.`
+        );
+        const totals = { totalGwp, totalUbp, totalPenr };
+        console.log("Calculated Totals:", totals);
+
+        // --- Temporarily removing DB saving of emissions ---
+        /*
+        // Save element emissions (Needs refactoring for material-based storage)
+        if (elementsWithEmissions.length > 0) {
+          const elementEmissionsCollection = lcaDb.collection(
+            config.mongodb.collections.elementEmissions
+          );
+          // This needs to be adapted to store materialInstancesWithEmissions
+          await elementEmissionsCollection.deleteMany({ project_id: projectId });
+          await elementEmissionsCollection.insertMany(elementsWithEmissions);
+          console.log(
+            `Saved ${elementsWithEmissions.length} element emissions to DB.`
+          );
+        }
+        */
+
+        // --- Prepare data for Kafka ---
+        console.log(
+          "Material Instances Prepared for Kafka:",
+          JSON.stringify(materialInstancesWithEmissions, null, 2)
+        );
+
+        // Check if there's anything to send
+        if (materialInstancesWithEmissions.length === 0 || !kafkaMetadata) {
+          console.log(
+            "No material instances with emissions calculated or missing Kafka metadata. Skipping Kafka send."
+          );
+          ws.send(
+            JSON.stringify({
+              type: "materials_saved", // Or a more specific status
+              projectId,
+              message:
+                "LCA summary saved. No material emissions calculated or metadata missing.",
+              messageId: data.messageId,
+            })
+          );
+        } else {
+          // Send the flat list of material instances to Kafka
+          await kafkaService.sendLcaBatchToKafka(
+            materialInstancesWithEmissions, // Pass the material instances list
+            kafkaMetadata,
+            totals
+          );
 
           ws.send(
             JSON.stringify({
               type: "materials_saved",
               projectId,
+              message: `LCA summary saved. Sent ${materialInstancesWithEmissions.length} material instances to Kafka.`, // Updated message
               messageId: data.messageId,
             })
           );
-        } catch (error) {
-          console.error("Error saving project materials:", error);
+        }
+      } // End 'save_project_materials' handler
+
+      // SEND_LCA_DATA handler (Needs similar refactoring if used)
+      if (data.type === "send_lca_data") {
+        // TODO: This handler also needs refactoring to expect and process
+        // a flat list of material instances if it's intended to be used.
+        // For now, it remains element-based.
+        const { projectId, elements } = data.payload;
+        if (!projectId || !elements || !Array.isArray(elements)) {
           ws.send(
             JSON.stringify({
               type: "error",
-              message: "Failed to save project materials",
+              message: "Invalid payload",
               messageId: data.messageId,
             })
           );
+          return;
         }
-      }
 
-      // Handle sending LCA data through Kafka
-      if (data.type === "send_lca_data") {
+        const { qtoDb, client } = await connectToDatabases();
+        dbClient = client;
+
+        // Fetch QTO Project Metadata
+        let kafkaMetadata: KafkaMetadata | null = null;
         try {
-          const { projectId, elements } = data;
-
-          if (!projectId || !elements || !Array.isArray(elements)) {
-            console.error("Invalid send_lca_data payload:", data);
-            ws.send(
-              JSON.stringify({
-                type: "send_lca_data_response",
-                status: "error",
-                message: "Invalid payload. Missing projectId or elements.",
-                messageId: data.messageId,
-              })
+          const qtoProject = await qtoDb.collection("projects").findOne(
+            { _id: new ObjectId(projectId) },
+            {
+              projection: {
+                name: 1,
+                metadata: 1,
+                created_at: 1,
+                updated_at: 1,
+              },
+            }
+          );
+          if (qtoProject) {
+            const fileProcessingTimestamp =
+              qtoProject.metadata?.fileProcessingTimestamp ||
+              qtoProject.updated_at ||
+              qtoProject.created_at ||
+              new Date();
+            kafkaMetadata = {
+              project: qtoProject.name || `Project_${projectId}`,
+              filename: qtoProject.metadata?.filename || "unknown.ifc",
+              timestamp: new Date(fileProcessingTimestamp).toISOString(),
+              fileId: qtoProject.metadata?.file_id || projectId.toString(),
+            };
+          } else {
+            console.error(
+              `Metadata not found for project ${projectId} (send_lca_data)`
             );
-            return;
           }
-
-          console.log(
-            `Received request to send LCA data for project ${projectId} with ${elements.length} elements`
-          );
-
-          // Get project info to extract filename
-          let projectName = "Unknown Project";
-          let filename = "unknown.ifc";
-
-          try {
-            // Connect to QTO database
-            let client;
-            let qtoDb;
-
-            try {
-              // Try main connection first
-              client = new MongoClient(MONGODB_URI);
-              await client.connect();
-              qtoDb = client.db(config.mongodb.qtoDatabase);
-            } catch (error: any) {
-              console.warn(
-                `Failed to connect using URI for project info: ${error.message}`
-              );
-
-              // Try fallback connection
-              const fallbackUri = "mongodb://mongodb:27017/?authSource=admin";
-              client = new MongoClient(fallbackUri, {
-                auth: {
-                  username: "admin",
-                  password: "secure_password",
-                },
-              });
-              await client.connect();
-              qtoDb = client.db(config.mongodb.qtoDatabase);
-            }
-
-            // Get project details
-            const projectObjectId = new ObjectId(projectId);
-            const project = await qtoDb
-              .collection("projects")
-              .findOne({ _id: projectObjectId });
-
-            if (project) {
-              projectName = project.name || projectName;
-              if (project.metadata && project.metadata.filename) {
-                filename = project.metadata.filename;
-              }
-            }
-
-            // Close connection
-            await client.close();
-          } catch (error) {
-            console.warn("Could not get project details:", error);
-          }
-
-          // Send data to Kafka
-          const result = await kafkaService.sendLcaBatchToKafka(
-            elements,
-            projectName,
-            filename
-          );
-
-          // Send response
-          ws.send(
-            JSON.stringify({
-              type: "send_lca_data_response",
-              status: result ? "success" : "error",
-              message: result
-                ? "LCA data sent successfully"
-                : "Failed to send LCA data",
-              elementCount: elements.length,
-              messageId: data.messageId,
-            })
-          );
         } catch (error) {
-          console.error("Error sending LCA data to Kafka:", error);
-          ws.send(
-            JSON.stringify({
-              type: "send_lca_data_response",
-              status: "error",
-              message: `Error: ${error}`,
-              messageId: data.messageId,
-            })
+          console.error(
+            `Error fetching QTO project metadata (send_lca_data): ${error}`
           );
         }
-        return;
+        if (!kafkaMetadata) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Failed to fetch project metadata for Kafka message.",
+              messageId: data.messageId,
+            })
+          );
+          return;
+        }
+
+        // Map input elements to LcaElementData format
+        const lcaElementsForKafka: LcaElementData[] = elements.map(
+          (element: any, index: number) => {
+            // Prioritize global_id, then qto_element_id, then _id, then element.id
+            const id =
+              element.global_id ||
+              element.qto_element_id ||
+              element._id?.toString() ||
+              element.id ||
+              `unknown_${index}`;
+            console.log(
+              `[Kafka Map - send_lca_data] Mapping element. ID: ${id}`
+            ); // Log ID selection
+            return {
+              id: id, // Use prioritized ID
+              category: element.ifc_class || element.category || "unknown",
+              level: element.level || "",
+              is_structural: element.is_structural ?? false,
+              materials: (element.materials || []).map((material: any) => ({
+                name: material.name || "Unknown",
+                volume: parseFloat(
+                  typeof material.volume === "string"
+                    ? material.volume
+                    : material.volume?.toString() || "0"
+                ),
+                impact: material.impact || undefined, // Include material impact if provided
+              })),
+              impact: element.impact || { gwp: 0, ubp: 0, penr: 0 },
+              mat_kbob:
+                element.mat_kbob || element.primaryKbobId || "UNKNOWN_KBOB", // Pass KBOB ID if available in input
+              sequence: index,
+            };
+          }
+        );
+
+        // Calculate totals
+        let totalGwp = 0,
+          totalUbp = 0,
+          totalPenr = 0;
+        for (const element of lcaElementsForKafka) {
+          totalGwp += element.impact.gwp;
+          totalUbp += element.impact.ubp;
+          totalPenr += element.impact.penr;
+        }
+        const totals = { totalGwp, totalUbp, totalPenr };
+
+        // Corrected: Directly call kafkaService.sendLcaBatchToKafka with 3 arguments
+        const result = await kafkaService.sendLcaBatchToKafka(
+          lcaElementsForKafka,
+          kafkaMetadata,
+          totals
+        );
+
+        // Send response back to client
+        ws.send(
+          JSON.stringify({
+            type: "send_lca_data_response",
+            status: result ? "success" : "error",
+            message: result
+              ? "LCA data sent successfully"
+              : "Failed to send LCA data",
+            elementCount: elements.length,
+            messageId: data.messageId,
+          })
+        );
       }
     } catch (error) {
       console.error("Error processing message:", error);
       ws.send(
-        JSON.stringify({
-          type: "error",
-          message: "Failed to process request",
-        })
+        JSON.stringify({ type: "error", message: "Failed to process request" })
       );
+    } finally {
+      if (dbClient) {
+        await dbClient.close();
+      }
     }
   });
 
   ws.on("close", () => {
     console.log("Client disconnected");
+    ws.send(
+      JSON.stringify({
+        type: "connected",
+        message: "Connected to LCA WebSocket server",
+      })
+    );
   });
-
-  // Send a welcome message
-  ws.send(
-    JSON.stringify({
-      type: "connected",
-      message: "Connected to LCA WebSocket server",
-    })
-  );
 });
 
 // Start server
@@ -1213,17 +1095,37 @@ server.listen(port, async () => {
           try {
             // Check if this is a PROJECT_UPDATED notification
             if (messageData.eventType === "PROJECT_UPDATED") {
+              const { projectId, projectName, filename, timestamp, fileId } =
+                messageData.payload;
               console.log(
-                `Received PROJECT_UPDATED notification for project: ${messageData.payload.projectName} (ID: ${messageData.payload.projectId})`
+                `Received PROJECT_UPDATED notification for project: ${projectName} (ID: ${projectId})`
               );
-              // Handle project updates if needed
+
+              // Store the metadata received from the QTO producer
+              if (projectId) {
+                projectMetadataStore[projectId] = {
+                  project: projectName,
+                  filename: filename || "unknown.ifc", // Use filename from payload
+                  timestamp: timestamp, // Use original timestamp from payload
+                  fileId: fileId || projectId, // Use fileId from payload
+                };
+                console.log(
+                  `Stored metadata for projectId ${projectId}:`,
+                  projectMetadataStore[projectId]
+                );
+              }
+
+              // TODO: Potentially trigger LCA calculation based on this update notification
+              // This might involve fetching elements for projectId from the DB
+              // and then proceeding with LCA calculation + sending results.
             } else {
-              // Handle individual element messages
-              console.log("Received element data, processing...");
-              // Process element data if needed
+              // Handle legacy element messages if necessary, or log/ignore
+              console.log(
+                "Received non-PROJECT_UPDATED message, skipping detailed processing in LCA for now."
+              );
             }
           } catch (error) {
-            console.error("Error processing Kafka message:", error);
+            console.error("Error processing Kafka message in LCA:", error);
           }
         }
       );

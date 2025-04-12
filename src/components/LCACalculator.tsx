@@ -26,7 +26,7 @@ import {
   useTheme,
 } from "@mui/material";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Select, { SingleValue } from "react-select";
+import Select from "react-select";
 import { fetchKBOBMaterials } from "../services/kbobService";
 import {
   ModelledMaterials as DefaultModelledMaterials,
@@ -49,8 +49,6 @@ import ReviewDialog from "./LCACalculator/ReviewDialog";
 import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
 // Replace YearToggle with DisplayModeToggle
 import DisplayModeToggle from "./LCACalculator/DisplayModeToggle";
-// Import constants
-import { BUILDING_LIFETIME_YEARS } from "../utils/constants";
 // Import DisplayMode type from helper
 import { DisplayMode } from "../utils/lcaDisplayHelper";
 

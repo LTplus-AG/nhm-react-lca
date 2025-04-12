@@ -22,13 +22,36 @@ export interface LcaElementData {
   }[];
   impact: LcaImpact;
   sequence?: number;
+  primaryKbobId?: string;
 }
 
-export interface LcaMessage {
+export interface LcaData {
+  id: string;
+  sequence: number;
+  mat_kbob: string;
+  gwp_relative: number;
+  gwp_absolute: number;
+  penr_relative: number;
+  penr_absolute: number;
+  upb_relative: number;
+  upb_absolute: number;
+}
+
+// Interface for the metadata object expected by Kafka sending functions
+export interface KafkaMetadata {
+  project: string;
+  filename: string;
+  timestamp: string; // Should be the ISO string from fileProcessingTimestamp
+  fileId: string;
+}
+
+// Updated IfcFileData interface to use KafkaMetadata type implicitly
+export interface IfcFileData {
   project: string;
   filename: string;
   timestamp: string;
-  data: LcaElementData[];
+  fileId: string;
+  data?: LcaData[];
 }
 
 class KafkaService {
@@ -50,7 +73,6 @@ class KafkaService {
   };
 
   constructor() {
-    // Initialize Kafka client
     this.kafka = new Kafka({
       clientId: this.config.clientId,
       brokers: [this.config.broker],
@@ -59,11 +81,7 @@ class KafkaService {
         retries: 10,
       },
     });
-
-    // Create producer for sending messages
     this.producer = this.kafka.producer();
-
-    // Create admin for managing topics
     this.admin = this.kafka.admin();
   }
 
@@ -72,23 +90,15 @@ class KafkaService {
    */
   async initialize(): Promise<boolean> {
     try {
-      // Connect to admin to manage topics
       await this.admin.connect();
       console.log(`Connected to Kafka admin on broker: ${this.config.broker}`);
-
-      // Ensure topics exist
       await this.ensureTopicExists(this.config.qtoTopic);
       await this.ensureTopicExists(this.config.lcaTopic);
       this.lcaTopicReady = true;
-
-      // Disconnect admin after topic verification
       await this.admin.disconnect();
-
-      // Connect producer for sending messages
       await this.producer.connect();
       console.log(`Producer connected to Kafka broker: ${this.config.broker}`);
       this.isProducerConnected = true;
-
       this.isConnected = true;
       return true;
     } catch (error) {
@@ -105,20 +115,13 @@ class KafkaService {
     messageHandler: (message: any) => Promise<void>
   ): Promise<boolean> {
     try {
-      // Create consumer
       this.consumer = this.kafka.consumer({ groupId: this.config.groupId });
-
-      // Connect consumer
       await this.consumer.connect();
       console.log(`Consumer connected to Kafka broker: ${this.config.broker}`);
-
-      // Subscribe to QTO topic
       await this.consumer.subscribe({
         topic: this.config.qtoTopic,
         fromBeginning: false,
       });
-
-      // Set up message handling
       await this.consumer.run({
         eachMessage: async ({ topic, partition, message }) => {
           try {
@@ -128,11 +131,7 @@ class KafkaService {
                 `Received message from Kafka topic ${topic}:`,
                 messageValue.substring(0, 200) + "..."
               );
-
-              // Parse the message
               const messageData = JSON.parse(messageValue);
-
-              // Process the message with the provided handler
               await messageHandler(messageData);
             }
           } catch (err) {
@@ -140,7 +139,6 @@ class KafkaService {
           }
         },
       });
-
       return true;
     } catch (error) {
       console.error("Failed to create Kafka consumer:", error);
@@ -149,127 +147,134 @@ class KafkaService {
   }
 
   /**
-   * Send LCA data to Kafka
+   * Batch send LCA data elements (now material instances), calculating relative values.
+   * Accepts a kafkaMetadata object and totals object.
    */
-  async sendLcaDataToKafka(
-    lcaData: LcaElementData | LcaElementData[],
-    projectName: string,
-    filename: string
+  async sendLcaBatchToKafka(
+    materialInstances: any[], // Changed parameter name and type (use a more specific type if defined)
+    kafkaMetadata: KafkaMetadata,
+    totals: { totalGwp: number; totalUbp: number; totalPenr: number }
   ): Promise<boolean> {
     try {
-      // Ensure topic exists
-      if (!this.lcaTopicReady) {
-        console.log(`Ensuring LCA topic exists: ${this.config.lcaTopic}`);
-        this.lcaTopicReady = await this.ensureTopicExists(this.config.lcaTopic);
+      if (!materialInstances || materialInstances.length === 0) {
+        console.log("No LCA material instances to send in batch.");
+        return false;
       }
-
-      // Ensure producer is connected
+      if (!kafkaMetadata || !totals) {
+        console.error(
+          "Incomplete metadata or totals provided to sendLcaBatchToKafka.",
+          { kafkaMetadata, totals }
+        );
+        return false;
+      }
+      if (!this.lcaTopicReady) {
+        await this.ensureTopicExists(this.config.lcaTopic);
+        this.lcaTopicReady = true;
+      }
       if (!this.isProducerConnected) {
-        console.log("Connecting producer to Kafka...");
         await this.producer.connect();
         this.isProducerConnected = true;
       }
 
-      // Format as array if single item
-      const dataArray = Array.isArray(lcaData) ? lcaData : [lcaData];
-
-      // Create message format
-      const lcaMessage: LcaMessage = {
-        project: projectName,
-        filename: filename,
-        timestamp: new Date().toISOString(),
-        data: dataArray,
-      };
-
-      // Create fileID for use as message key
-      const fileID = `${projectName}/${filename}`;
-
-      // Log what we're sending
-      console.log(
-        `Sending LCA message to Kafka topic ${this.config.lcaTopic}:`,
-        {
-          project: lcaMessage.project,
-          dataCount: lcaMessage.data.length,
-          timestamp: lcaMessage.timestamp,
-        }
-      );
-
-      // Send the message
-      await this.producer.send({
-        topic: this.config.lcaTopic,
-        messages: [
-          {
-            value: JSON.stringify(lcaMessage),
-            key: fileID,
-          },
-        ],
-      });
-
-      console.log(`LCA message sent to Kafka topic ${this.config.lcaTopic}`);
-      return true;
-    } catch (error) {
-      console.error("Error sending LCA data to Kafka:", error);
-      return false;
-    }
-  }
-
-  /**
-   * Batch send multiple LCA data elements
-   */
-  async sendLcaBatchToKafka(
-    lcaElements: LcaElementData[],
-    projectName: string,
-    filename: string
-  ): Promise<boolean> {
-    try {
-      if (!lcaElements || lcaElements.length === 0) {
-        console.log("No LCA elements to send to Kafka");
-        return false;
-      }
-
-      const BATCH_SIZE = 100; // Maximum elements per batch
-      const batches = [];
-
-      // Create batches of elements
-      for (let i = 0; i < lcaElements.length; i += BATCH_SIZE) {
-        batches.push(lcaElements.slice(i, i + BATCH_SIZE));
+      const BATCH_SIZE = 200; // Adjust batch size if needed
+      const batches: any[][] = [];
+      for (let i = 0; i < materialInstances.length; i += BATCH_SIZE) {
+        batches.push(materialInstances.slice(i, i + BATCH_SIZE));
       }
 
       console.log(
-        `Sending ${lcaElements.length} LCA elements in ${batches.length} batches`
+        `Sending ${materialInstances.length} LCA material instances in ${batches.length} batches (Project: ${kafkaMetadata.project}, File: ${kafkaMetadata.filename})`
       );
 
-      let successCount = 0;
+      let allBatchesSentSuccessfully = true;
 
-      // Process each batch
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
-        const result = await this.sendLcaDataToKafka(
-          batch,
-          projectName,
-          filename
-        );
 
-        if (result) {
-          successCount += batch.length;
+        // Map batch elements (material instances) to the final LcaData format
+        const kafkaLcaData: LcaData[] = batch.map((materialInstance, index) => {
+          // Calculate absolute impacts for this material instance
+          const gwpAbs = materialInstance.impact.gwp || 0;
+          const ubpAbs = materialInstance.impact.ubp || 0;
+          const penrAbs = materialInstance.impact.penr || 0;
+
+          // Calculate relative impacts based on overall totals
+          const gwpRel = totals.totalGwp !== 0 ? gwpAbs / totals.totalGwp : 0;
+          const ubpRel = totals.totalUbp !== 0 ? ubpAbs / totals.totalUbp : 0;
+          const penrRel =
+            totals.totalPenr !== 0 ? penrAbs / totals.totalPenr : 0;
+
+          // Get the KBOB ID associated with this specific material instance
+          const matKbobValue = materialInstance.kbob_id || "UNKNOWN_KBOB";
+
+          // Use the parent element's global_id (or fallback) as the primary ID
+          const id =
+            materialInstance.global_id ||
+            materialInstance.element_id ||
+            `unknown_element_${index}`;
+
+          // Log the mapping details
           console.log(
-            `Successfully sent batch ${i + 1}/${batches.length} (${
-              batch.length
-            } elements)`
+            `[Kafka Map - Material] ID: ${id}, KBOB: ${matKbobValue}, GWP_Abs: ${gwpAbs.toFixed(
+              2
+            )}, Name: ${materialInstance.material_name}`
           );
-        } else {
-          console.error(`Failed to send batch ${i + 1}/${batches.length}`);
+
+          return {
+            id: id, // Parent Element GlobalID (or fallback)
+            sequence: materialInstance.sequence ?? index, // Use sequence from material instance, fallback to batch index
+            mat_kbob: matKbobValue, // Material-specific KBOB ID
+            gwp_relative: gwpRel,
+            gwp_absolute: gwpAbs,
+            penr_relative: penrRel,
+            penr_absolute: penrAbs,
+            upb_relative: ubpRel, // Note: Schema uses 'upb', input used 'ubp'
+            upb_absolute: ubpAbs, // Note: Schema uses 'upb', input used 'ubp'
+          };
+        });
+
+        // Create the IfcFileData message for this batch
+        const lcaMessage: IfcFileData = {
+          project: kafkaMetadata.project,
+          filename: kafkaMetadata.filename,
+          timestamp: kafkaMetadata.timestamp,
+          fileId: kafkaMetadata.fileId,
+          data: kafkaLcaData,
+        };
+        const messageKey = kafkaMetadata.fileId;
+
+        try {
+          console.log(
+            `Attempting to send LCA batch ${i + 1}/${
+              batches.length
+            } message to Kafka topic ${this.config.lcaTopic}:`,
+            JSON.stringify(lcaMessage, null, 2)
+          );
+          await this.producer.send({
+            topic: this.config.lcaTopic,
+            messages: [{ value: JSON.stringify(lcaMessage), key: messageKey }],
+          });
+          console.log(
+            `LCA batch ${i + 1}/${batches.length} sent successfully.`
+          );
+        } catch (sendError) {
+          console.error(
+            `Error sending LCA batch ${i + 1}/${batches.length} to Kafka:`,
+            sendError
+          );
+          this.isProducerConnected = false;
+          allBatchesSentSuccessfully = false;
+          break;
         }
 
-        // Add a small delay between batches to avoid overwhelming Kafka
+        // Optional delay between batches
         if (batches.length > 1 && i < batches.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          await new Promise((resolve) => setTimeout(resolve, 50));
         }
       }
-
-      return successCount > 0;
+      return allBatchesSentSuccessfully;
     } catch (error) {
-      console.error("Error sending LCA batch to Kafka:", error);
+      console.error("Error in sendLcaBatchToKafka:", error);
       return false;
     }
   }
@@ -279,20 +284,13 @@ class KafkaService {
    */
   async ensureTopicExists(topic: string): Promise<boolean> {
     try {
-      // Connect admin client if needed (check if connect method has been called)
       try {
-        // Try to list topics - if it fails, we need to connect
         await this.admin.listTopics();
       } catch (error) {
-        // If error, we need to connect
         await this.admin.connect();
       }
-
-      // List existing topics
       const topics = await this.admin.listTopics();
       console.log(`Available Kafka topics: ${topics.join(", ")}`);
-
-      // Create topic if it doesn't exist
       if (!topics.includes(topic)) {
         console.log(`Topic '${topic}' does not exist. Creating it...`);
         await this.admin.createTopics({
@@ -302,7 +300,6 @@ class KafkaService {
       } else {
         console.log(`Topic '${topic}' already exists`);
       }
-
       return true;
     } catch (error) {
       console.error(`Error checking/creating Kafka topic ${topic}:`, error);
@@ -319,20 +316,17 @@ class KafkaService {
         await this.consumer.disconnect();
         console.log("Kafka consumer disconnected");
       }
-
       if (this.isProducerConnected) {
         await this.producer.disconnect();
         console.log("Kafka producer disconnected");
         this.isProducerConnected = false;
       }
-
       try {
         await this.admin.disconnect();
         console.log("Kafka admin disconnected");
       } catch (error) {
-        // Ignore if admin is already disconnected
+        /* Ignore */
       }
-
       this.isConnected = false;
     } catch (error) {
       console.error("Error disconnecting from Kafka:", error);
