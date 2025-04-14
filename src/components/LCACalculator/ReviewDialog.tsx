@@ -24,6 +24,31 @@ import { Material, OutputFormats, KbobMaterial } from "../../types/lca.types";
 import { BUILDING_LIFETIME_YEARS } from "../../utils/constants";
 import { LCACalculator } from "../../utils/lcaCalculator";
 import { DisplayMode } from "../../utils/lcaDisplayHelper";
+import ElementImpactTable from "./ElementImpactTable";
+import { MaterialImpact } from "../../types/lca.types";
+
+// Define LcaElement type locally or import from a shared types file
+// This needs to match the definition in LCACalculator.tsx
+interface LcaElement {
+  id: string;
+  element_type: string;
+  quantity: number;
+  properties: {
+    level?: string;
+    is_structural?: boolean;
+    is_external?: boolean;
+    ebkp_code?: string;
+    ebkp_name?: string;
+    [key: string]: any;
+  };
+  materials: {
+    name: string;
+    volume: number;
+    unit: string;
+    kbob_id?: string;
+  }[];
+  impact?: MaterialImpact; // Use MaterialImpact here
+}
 
 interface ReviewDialogProps {
   open: boolean;
@@ -38,28 +63,11 @@ interface ReviewDialogProps {
   calculator: LCACalculator;
   materialDensities: Record<string, number>;
   outputFormat: OutputFormats;
-  calculatedElements: {
-    id: string;
-    element_type: string;
-    quantity: number;
-    properties: {
-      level?: string;
-      is_structural?: boolean;
-      is_external?: boolean;
-    };
-    materials: {
-      name: string;
-      volume: number;
-      unit: string;
-    }[];
-    impact?: {
-      gwp: number;
-      ubp: number;
-      penr: number;
-    };
-  }[];
+  // Use the renamed type for the prop
+  ifcElementsWithImpacts: LcaElement[];
   onSave: (data: any) => Promise<void>;
   kbobMaterials: KbobMaterial[];
+  aggregatedMaterialImpacts: Record<string, MaterialImpact>;
 }
 
 const ReviewDialog: React.FC<ReviewDialogProps> = ({
@@ -72,9 +80,11 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
   ebfNumeric,
   calculator,
   materialDensities,
-  calculatedElements,
+  ifcElementsWithImpacts,
   onSave,
   kbobMaterials,
+  outputFormat,
+  aggregatedMaterialImpacts,
 }) => {
   const [tabValue, setTabValue] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -86,8 +96,8 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
   const formatNumber = (
     num: number | null | undefined,
     decimals: number = 0
-  ) => {
-    if (num === null || num === undefined) return "N/A";
+  ): string => {
+    if (num === null || num === undefined || isNaN(num)) return "N/A";
     return new Intl.NumberFormat("de-CH", {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
@@ -95,14 +105,16 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     }).format(num);
   };
 
-  const getDisplayValue = (value: number): number => {
+  const getDisplayValue = (value: number | undefined): number | undefined => {
+    if (value === undefined) return undefined;
     if (displayMode === "relative" && ebfNumeric !== null && ebfNumeric > 0) {
       return value / (BUILDING_LIFETIME_YEARS * ebfNumeric);
     }
     return value;
   };
 
-  const getDecimalPrecision = (value: number): number => {
+  const getDecimalPrecision = (value: number | undefined): number => {
+    if (value === undefined) return 0;
     if (displayMode === "relative" || Math.abs(value) < 1) {
       return 2;
     } else if (Math.abs(value) < 100) {
@@ -111,11 +123,32 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     return 0;
   };
 
-  const formatDisplayValue = (value: number | null | undefined): string => {
-    if (value === null || value === undefined) return "N/A";
+  const formatDisplayValue = (value: number | undefined): string => {
     const displayValue = getDisplayValue(value);
+    if (displayValue === undefined) return "N/A";
     const decimals = getDecimalPrecision(displayValue);
     return formatNumber(displayValue, decimals);
+  };
+
+  const getUnitForOutputFormat = (format: OutputFormats): string => {
+    let baseUnit = "";
+    switch (format) {
+      case OutputFormats.GWP:
+        baseUnit = "kg CO₂-eq";
+        break;
+      case OutputFormats.UBP:
+        baseUnit = "UBP";
+        break;
+      case OutputFormats.PENR:
+        baseUnit = "MJ"; // Or kWh?
+        break;
+      default:
+        baseUnit = "";
+    }
+    if (displayMode === "relative") {
+      return `${baseUnit}/m²·a`;
+    }
+    return baseUnit;
   };
 
   const handleSaveAndSubmit = async () => {
@@ -130,7 +163,7 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
       // Create a simplified data structure for saving
       const dataToSave = {
         ifcData: {
-          elements: calculatedElements,
+          elements: ifcElementsWithImpacts,
         },
         // Include EBF value if available
         ebfValue: ebfNumeric !== null ? ebfNumeric.toString() : undefined,
@@ -344,52 +377,12 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
 
         {/* Elements tab */}
         {tabValue === 1 && (
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Element Typ</TableCell>
-                  <TableCell>Materials</TableCell>
-                  <TableCell align="right">Volume</TableCell>
-                  <TableCell align="right">GWP (kg CO₂-eq)</TableCell>
-                  <TableCell align="right">UBP</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {calculatedElements.slice(0, 100).map((element) => (
-                  <TableRow key={element.id}>
-                    <TableCell>{element.element_type}</TableCell>
-                    <TableCell>
-                      {element.materials.map((m) => m.name).join(", ")}
-                    </TableCell>
-                    <TableCell align="right">
-                      {formatNumber(element.quantity, 2)} m³
-                    </TableCell>
-                    <TableCell align="right">
-                      {element.impact
-                        ? formatDisplayValue(element.impact.gwp)
-                        : "-"}
-                    </TableCell>
-                    <TableCell align="right">
-                      {element.impact
-                        ? formatDisplayValue(element.impact.ubp)
-                        : "-"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {calculatedElements.length > 100 && (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center">
-                      <Typography variant="body2" color="text.secondary">
-                        {calculatedElements.length - 100} weitere Elemente
-                        (insgesamt {calculatedElements.length})
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <ElementImpactTable
+            elements={ifcElementsWithImpacts}
+            outputFormat={outputFormat}
+            displayMode={displayMode}
+            ebfNumeric={ebfNumeric}
+          />
         )}
 
         {/* Materials tab */}
@@ -398,40 +391,60 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Material</TableCell>
-                  <TableCell>Zuordnung</TableCell>
-                  <TableCell align="right">Volume</TableCell>
+                  <TableCell sx={{ fontWeight: "medium" }}>Material</TableCell>
+                  <TableCell sx={{ fontWeight: "medium" }}>Zuordnung</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: "medium" }}>
+                    Volume (m³)
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: "medium" }}>
+                    GWP ({getUnitForOutputFormat(OutputFormats.GWP)})
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: "medium" }}>
+                    UBP ({getUnitForOutputFormat(OutputFormats.UBP)})
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: "medium" }}>
+                    PENR ({getUnitForOutputFormat(OutputFormats.PENR)})
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {modelledMaterials.map((material) => (
-                  <TableRow key={material.id}>
-                    <TableCell>{material.name}</TableCell>
-                    <TableCell>
-                      {matches[material.id] ? (
-                        <Chip
-                          size="small"
-                          label="Zugeordnet"
-                          color="success"
-                          variant="outlined"
-                        />
-                      ) : (
-                        <Chip
-                          size="small"
-                          label="Nicht zugeordnet"
-                          color="error"
-                          variant="outlined"
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell align="right">
-                      {typeof material.volume === "number"
-                        ? formatNumber(material.volume, 2)
-                        : material.volume}{" "}
-                      m³
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {modelledMaterials.map((material) => {
+                  const impact = aggregatedMaterialImpacts[material.id];
+                  return (
+                    <TableRow key={material.id}>
+                      <TableCell>{material.name}</TableCell>
+                      <TableCell>
+                        {matches[material.id] ? (
+                          <Chip
+                            size="small"
+                            label="Zugeordnet"
+                            color="success"
+                            variant="outlined"
+                          />
+                        ) : (
+                          <Chip
+                            size="small"
+                            label="Nicht zugeordnet"
+                            color="error"
+                            variant="outlined"
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        {formatNumber(material.volume, 2)}
+                      </TableCell>
+                      <TableCell align="right">
+                        {formatDisplayValue(impact?.gwp)}
+                      </TableCell>
+                      <TableCell align="right">
+                        {formatDisplayValue(impact?.ubp)}
+                      </TableCell>
+                      <TableCell align="right">
+                        {formatDisplayValue(impact?.penr)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>

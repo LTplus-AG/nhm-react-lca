@@ -14,7 +14,12 @@ import {
   Chip,
 } from "@mui/material";
 import Select from "react-select";
-import { Material, KbobMaterial, OutputFormats } from "../../types/lca.types";
+import {
+  Material,
+  KbobMaterial,
+  OutputFormats,
+  MaterialImpact,
+} from "../../types/lca.types";
 import { LCAImpactCalculator } from "../../utils/lcaImpactCalculator";
 
 export interface MaterialOption {
@@ -42,6 +47,7 @@ export interface ModelledMaterialListProps {
   handleDensityUpdate?: (materialId: string, newDensity: number) => void;
   materialDensities?: Record<string, number>;
   outputFormat?: OutputFormats;
+  aggregatedMaterialImpacts: Record<string, MaterialImpact>;
 }
 
 interface DensityDialogProps {
@@ -140,6 +146,7 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
   handleDensityUpdate,
   materialDensities = {},
   outputFormat = OutputFormats.GWP,
+  aggregatedMaterialImpacts,
 }) => {
   const [editingDensity, setEditingDensity] = useState<string | null>(null);
 
@@ -181,27 +188,17 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
       : kbobMaterialOptions;
   };
 
-  const getEmissionValue = (
-    material: Material,
-    kbobMaterial: KbobMaterial | undefined
-  ) => {
-    if (!kbobMaterial) return null;
+  const getEmissionValue = (material: Material) => {
+    const impact = aggregatedMaterialImpacts[material.id];
+    if (!impact) return null;
 
-    // Use LCAImpactCalculator to calculate the impact
-    const materialImpact = LCAImpactCalculator.calculateMaterialImpact(
-      material,
-      kbobMaterial,
-      materialDensities
-    );
-
-    // Return the appropriate value based on the selected output format
     switch (outputFormat) {
       case OutputFormats.GWP:
-        return materialImpact.gwp;
+        return impact.gwp;
       case OutputFormats.UBP:
-        return materialImpact.ubp;
+        return impact.ubp;
       case OutputFormats.PENR:
-        return materialImpact.penr;
+        return impact.penr;
       default:
         return null;
     }
@@ -246,9 +243,7 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
       <Grid container spacing={2}>
         {modelledMaterials.map((material) => {
           const matchedKbobMaterial = getMatchedKbobMaterial(material.id);
-          const emissionValue = matchedKbobMaterial
-            ? getEmissionValue(material, matchedKbobMaterial)
-            : null;
+          const emissionValue = getEmissionValue(material);
 
           return (
             <Grid item xs={12} sm={6} md={4} key={material.id}>

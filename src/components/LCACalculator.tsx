@@ -31,6 +31,7 @@ import {
   Material,
   OutputFormatLabels,
   OutputFormats,
+  MaterialImpact,
 } from "../types/lca.types.ts";
 import { getFuzzyMatches } from "../utils/fuzzySearch";
 import { LCACalculator } from "../utils/lcaCalculator";
@@ -38,6 +39,7 @@ import { DisplayMode } from "../utils/lcaDisplayHelper";
 import DisplayModeToggle from "./LCACalculator/DisplayModeToggle";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import ReviewDialog from "./LCACalculator/ReviewDialog";
+import ElementImpactTable from "./LCACalculator/ElementImpactTable";
 
 // Import WebSocket service
 import {
@@ -73,7 +75,7 @@ interface IFCResult {
   projectId: string;
   ifcData: {
     materials?: IFCMaterial[];
-    elements?: Element[];
+    elements?: LcaElement[];
     totalImpact?: {
       gwp: number;
       ubp: number;
@@ -83,20 +85,26 @@ interface IFCResult {
   materialMappings: Record<string, string>;
 }
 
-// Element type for ReviewDialog
-interface Element {
+// Rename the local interface to avoid conflict with DOM Element
+interface LcaElement {
   id: string;
   element_type: string;
-  quantity: number;
+  quantity: number; // Represents total volume for the element in this context
   properties: {
     level?: string;
     is_structural?: boolean;
     is_external?: boolean;
+    ebkp_code?: string; // Add optional EBKP code
+    ebkp_name?: string; // Add optional EBKP name
+    // Add other potential properties from raw IFC elements
+    [key: string]: any;
   };
   materials: {
     name: string;
     volume: number;
     unit: string;
+    // Add kbob_id if we want to store the mapping per instance?
+    kbob_id?: string;
   }[];
   impact?: {
     gwp: number;
@@ -104,6 +112,7 @@ interface Element {
     penr: number;
   };
 }
+
 interface ProjectOption {
   value: string;
   label: string;
@@ -160,7 +169,7 @@ export default function LCACalculatorComponent(): JSX.Element {
     projectId: "",
     ifcData: {
       materials: [],
-      elements: [],
+      elements: [], // Keep this structure for initial load
       totalImpact: { gwp: 0, ubp: 0, penr: 0 },
     },
     materialMappings: {},
@@ -169,7 +178,15 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [suggestedMatches, setSuggestedMatches] = useState<
     Record<string, KbobMaterial[]>
   >({});
-  const [calculatedElements, setCalculatedElements] = useState<Element[]>([]);
+  // Add state for raw IFC elements
+  const [rawIfcElements, setRawIfcElements] = useState<any[]>([]);
+  // Add state for IFC elements with calculated impacts
+  const [ifcElementsWithImpacts, setIfcElementsWithImpacts] = useState<
+    LcaElement[]
+  >([]);
+  const [aggregatedMaterialImpacts, setAggregatedMaterialImpacts] = useState<
+    Record<string, MaterialImpact>
+  >({});
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(
     null
   );
@@ -235,7 +252,8 @@ export default function LCACalculatorComponent(): JSX.Element {
       if (!selectedProject) {
         setModelledMaterials([]);
         setMatches({});
-        setCalculatedElements([]);
+        setRawIfcElements([]);
+        setIfcElementsWithImpacts([]);
         setEbfInput("");
         setIfcResult({
           projectId: "",
@@ -252,7 +270,8 @@ export default function LCACalculatorComponent(): JSX.Element {
 
       setModelledMaterials([]);
       setMatches({});
-      setCalculatedElements([]);
+      setRawIfcElements([]);
+      setIfcElementsWithImpacts([]);
       setEbfInput("");
       setIfcResult({
         projectId: "",
@@ -269,58 +288,55 @@ export default function LCACalculatorComponent(): JSX.Element {
         const projectData = await getProjectMaterials(selectedProject.value);
 
         if (projectData && projectData.ifcData) {
+          // Store the raw elements separately
+          const rawElements = projectData.ifcData.elements || [];
+          setRawIfcElements(rawElements);
+
+          // Update ifcResult but elements might be processed differently now
           setIfcResult({
             projectId: selectedProject.value,
-            ifcData: projectData.ifcData,
+            ifcData: { ...projectData.ifcData, elements: rawElements }, // Store raw elements here too?
             materialMappings: projectData.materialMappings || {},
           });
 
-          // Check if we have elements data (new format) or materials data (old format)
-          let materialsArray: {
-            id: string;
-            name: string;
-            volume: number;
-            unit: string;
-          }[] = [];
+          // Derive aggregated materials for the 'Material' tab
+          let materialsArray: Material[] = [];
+          if (rawElements.length > 0) {
+            const materialMap = new Map<
+              string,
+              { volume: number; id: string }
+            >();
 
-          if (
-            projectData.ifcData.elements &&
-            projectData.ifcData.elements.length > 0
-          ) {
-
-            // Extract unique materials from elements
-            const materialMap = new Map<string, number>();
-
-            projectData.ifcData.elements.forEach((element: any) => {
-              if (element.materials && element.materials.length > 0) {
+            rawElements.forEach((element: any) => {
+              if (element.materials && Array.isArray(element.materials)) {
                 element.materials.forEach(
-                  (material: { name: string; volume: number }) => {
-                    const name = material.name;
-                    // Check if we already have this material, if yes - add volumes
-                    if (materialMap.has(name)) {
-                      materialMap.set(
-                        name,
-                        materialMap.get(name)! + material.volume
+                  (material: { name?: string; volume?: number | string }) => {
+                    if (material.name && material.volume !== undefined) {
+                      const name = material.name; // Use raw name for map key
+                      const volume = parseFloat(
+                        material.volume.toString() || "0"
                       );
-                    } else {
-                      materialMap.set(name, material.volume);
+                      if (!isNaN(volume) && volume > 0) {
+                        const existing = materialMap.get(name);
+                        materialMap.set(name, {
+                          volume: (existing?.volume || 0) + volume,
+                          id: name, // Use name as ID for modelledMaterials
+                        });
+                      }
                     }
                   }
                 );
               }
             });
 
-            materialsArray = Array.from(materialMap.entries()).map(
-              ([name, volume]) => ({
-                id: name, // Use name as id
-                name: name,
-                volume: volume,
-                unit: "m³",
-              })
-            );
-
-            setCalculatedElements(projectData.ifcData.elements);
+            materialsArray = Array.from(materialMap.values()).map((data) => ({
+              id: data.id,
+              name: data.id, // name is the key used
+              volume: data.volume,
+              unit: "m³",
+            }));
           } else if (projectData.ifcData.materials) {
+            // Fallback for old format (if needed)
             const materials = projectData.ifcData.materials || [];
             materialsArray = materials.map((material) => ({
               id: material.name,
@@ -328,8 +344,6 @@ export default function LCACalculatorComponent(): JSX.Element {
               volume: material.volume,
               unit: "m³",
             }));
-          } else {
-            console.warn("No materials or elements data found");
           }
 
           setModelledMaterials(materialsArray);
@@ -347,9 +361,18 @@ export default function LCACalculatorComponent(): JSX.Element {
           setModelledMaterials([]);
           setMatches({});
           setEbfInput("");
+          setRawIfcElements([]); // Reset raw elements on empty data
         }
       } catch (error) {
-        setInitialLoading(false);
+        console.error("Error loading project materials:", error);
+        // Reset states on error
+        setModelledMaterials([]);
+        setMatches({});
+        setEbfInput("");
+        setRawIfcElements([]);
+        setIfcElementsWithImpacts([]);
+      } finally {
+        setInitialLoading(false); // Ensure loading state is turned off
       }
     };
 
@@ -541,7 +564,6 @@ export default function LCACalculatorComponent(): JSX.Element {
   );
 
   const findBestMatchesForAll = useCallback(() => {
-
     if (kbobLoading) {
       alert(
         "Die KBOB-Materialien werden noch geladen. Bitte warten Sie einen Moment."
@@ -928,63 +950,161 @@ export default function LCACalculatorComponent(): JSX.Element {
     }
   }, [kbobMaterials]);
 
-  // Generate calculated elements from modelled materials
-  const generateCalculatedElements = useCallback(() => {
-    if (modelledMaterials.length === 0 || kbobMaterials.length === 0) {
-      return [];
+  // Calculate aggregated impacts for the ModelledMaterialList
+  const calculateAndSetAggregatedImpacts = useCallback(() => {
+    if (
+      modelledMaterials.length === 0 ||
+      kbobMaterials.length === 0 ||
+      Object.keys(matches).length === 0
+    ) {
+      setAggregatedMaterialImpacts({});
+      return;
     }
 
-    // Convert modelled materials to elements
-    const elements: Element[] = modelledMaterials
-      .filter((material) => matches[material.id]) // Only include matched materials
-      .map((material, index) => {
-        const matchedKbobId = matches[material.id];
-        const kbobMaterial = kbobMaterials.find((m) => m.id === matchedKbobId);
+    const kbobMap = new Map(kbobMaterials.map((k) => [k.id, k]));
+    const impacts: Record<string, MaterialImpact> = {};
 
-        if (!kbobMaterial) {
-          return null;
+    modelledMaterials.forEach((material) => {
+      const matchedKbobId = matches[material.id];
+      if (matchedKbobId) {
+        const kbobMaterial = kbobMap.get(matchedKbobId);
+        if (kbobMaterial) {
+          const impact = LCAImpactCalculator.calculateMaterialImpact(
+            material,
+            kbobMaterial,
+            materialDensities
+          );
+          impacts[material.id] = impact;
         }
+      }
+    });
 
-        // Use the LCAImpactCalculator to calculate impact
-        const volume =
-          typeof material.volume === "number" ? material.volume : 0;
-        const materialImpact = LCAImpactCalculator.calculateMaterialImpact(
-          material,
-          kbobMaterial,
-          materialDensities
-        );
-
-        return {
-          id: `element_${index + 1}`,
-          element_type: "IfcMaterial",
-          quantity: volume,
-          properties: {
-            is_structural: true,
-            is_external: false,
-          },
-          materials: [
-            {
-              name: material.name,
-              volume: volume,
-              unit: "m³",
-            },
-          ],
-          impact: {
-            gwp: parseFloat(materialImpact.gwp.toFixed(2)),
-            ubp: parseFloat(materialImpact.ubp.toFixed(2)),
-            penr: parseFloat(materialImpact.penr.toFixed(2)),
-          },
-        };
-      })
-      .filter(Boolean) as Element[];
-
-    return elements;
+    setAggregatedMaterialImpacts(impacts);
   }, [modelledMaterials, matches, kbobMaterials, materialDensities]);
 
+  // Effect to run the aggregation calculation when dependencies change
   useEffect(() => {
-    const elements = generateCalculatedElements();
-    setCalculatedElements(elements);
-  }, [generateCalculatedElements, modelledMaterials, matches, kbobMaterials]);
+    calculateAndSetAggregatedImpacts();
+  }, [calculateAndSetAggregatedImpacts]);
+
+  // NEW: Calculate impacts for individual IFC elements
+  const calculateAndSetIfcElementImpacts = useCallback(() => {
+    if (
+      rawIfcElements.length === 0 ||
+      kbobMaterials.length === 0 ||
+      Object.keys(matches).length === 0
+    ) {
+      setIfcElementsWithImpacts([]);
+      return;
+    }
+
+    const kbobMap = new Map(kbobMaterials.map((k) => [k.id, k]));
+    const processedElements: LcaElement[] = [];
+
+    // Helper to find modelled material ID based on raw name
+    const findModelledId = (rawName: string): string | undefined => {
+      const normalizedRawName = rawName.replace(/\s*\(\d+\)\s*$/, ""); // Simple normalization
+      const matchedEntry = Object.entries(matches).find(([modelledId, _]) => {
+        const normalizedModelledName = modelledId.replace(/\s*\(\d+\)\s*$/, "");
+        return normalizedModelledName === normalizedRawName;
+      });
+      return matchedEntry ? matchedEntry[0] : undefined;
+    };
+
+    rawIfcElements.forEach((rawElement, index) => {
+      let elementImpact: MaterialImpact = { gwp: 0, ubp: 0, penr: 0 };
+      let totalElementVolume = 0;
+      const elementMaterials: LcaElement["materials"] = [];
+
+      if (rawElement.materials && Array.isArray(rawElement.materials)) {
+        rawElement.materials.forEach(
+          (material: { name?: string; volume?: number | string }) => {
+            if (material.name && material.volume !== undefined) {
+              const rawMaterialName = material.name;
+              const volume = parseFloat(material.volume.toString() || "0");
+
+              if (!isNaN(volume) && volume > 0) {
+                totalElementVolume += volume;
+                const modelledMaterialId = findModelledId(rawMaterialName);
+                const matchedKbobId = modelledMaterialId
+                  ? matches[modelledMaterialId]
+                  : null;
+                const kbobMaterial = matchedKbobId
+                  ? kbobMap.get(matchedKbobId)
+                  : null;
+
+                elementMaterials.push({
+                  name: rawMaterialName,
+                  volume: volume,
+                  unit: "m³",
+                  kbob_id: matchedKbobId || undefined, // Store match if found
+                });
+
+                if (kbobMaterial) {
+                  // Prepare a temporary object for calculation, using the instance volume
+                  const tempMaterialForCalc = {
+                    id: modelledMaterialId || rawMaterialName, // Use modelled ID for density lookup if possible
+                    name: rawMaterialName,
+                    volume: volume, // CRITICAL: Use instance volume
+                    unit: "m³",
+                  };
+
+                  const instanceImpact =
+                    LCAImpactCalculator.calculateMaterialImpact(
+                      tempMaterialForCalc,
+                      kbobMaterial,
+                      materialDensities
+                    );
+
+                  elementImpact.gwp += instanceImpact.gwp;
+                  elementImpact.ubp += instanceImpact.ubp;
+                  elementImpact.penr += instanceImpact.penr;
+                } else {
+                  // console.log(`No KBOB match for ${rawMaterialName} in element ${rawElement.ifc_id || rawElement._id}`);
+                }
+              }
+            }
+          }
+        );
+      }
+
+      // Create the final Element object for the state
+      const elementProperties = { ...(rawElement.properties || {}) };
+      // Accept both EBKP and EBKP-H systems
+      if (
+        rawElement.classification &&
+        (rawElement.classification.system === "EBKP" ||
+          rawElement.classification.system === "EBKP-H")
+      ) {
+        elementProperties.ebkp_code = rawElement.classification.id;
+        elementProperties.ebkp_name = rawElement.classification.name;
+      }
+
+      processedElements.push({
+        id:
+          rawElement.global_id ||
+          rawElement.ifc_id ||
+          rawElement._id?.toString() ||
+          `ifc_elem_${index}`,
+        element_type: rawElement.ifc_class || "Unknown",
+        quantity: totalElementVolume, // Use sum of material volumes for quantity
+        properties: elementProperties, // Use the combined properties
+        materials: elementMaterials,
+        impact: {
+          gwp: parseFloat(elementImpact.gwp.toFixed(2)),
+          ubp: parseFloat(elementImpact.ubp.toFixed(2)),
+          penr: parseFloat(elementImpact.penr.toFixed(2)),
+        },
+      });
+    });
+
+    setIfcElementsWithImpacts(processedElements);
+  }, [rawIfcElements, matches, kbobMaterials, materialDensities]);
+
+  // Effect to run the IFC element calculation when dependencies change
+  useEffect(() => {
+    calculateAndSetIfcElementImpacts();
+  }, [calculateAndSetIfcElementImpacts]);
 
   const autoBulkMatch = useCallback(() => {
     if (modelledMaterials.length === 0) {
@@ -1082,14 +1202,17 @@ export default function LCACalculatorComponent(): JSX.Element {
     handleAbschliessen();
   };
 
-  const handleSave = async (data: any): Promise<void> => {
+  const handleSave = async (_data: any): Promise<void> => {
     if (!selectedProject?.value) {
       throw new Error("No project selected");
     }
 
-    // Include the current EBF value with the data
+    // Ensure the data being saved aligns with backend expectations
+    // It expects ifcData, materialMappings, ebfValue.
+    // We pass the *original* ifcResult.ifcData which contained the raw elements initially
+    // The backend recalculates based on mappings anyway.
     const formattedData = {
-      ...data,
+      ifcData: ifcResult.ifcData, // Pass original fetched data
       materialMappings: matches,
       ebfValue: ebfInput, // Include EBF input value for saving
     };
@@ -1547,15 +1670,17 @@ export default function LCACalculatorComponent(): JSX.Element {
                         materialDensities={materialDensities}
                         handleDensityUpdate={handleDensityUpdate}
                         outputFormat={outputFormat}
+                        aggregatedMaterialImpacts={aggregatedMaterialImpacts}
                       />
                     )}
                   </div>
                 ) : (
-                  <Box sx={{ mt: 3 }}>
-                    <Typography variant="body1" color="text.secondary">
-                      Hier werden zukünftig die IFC-Elemente angezeigt.
-                    </Typography>
-                  </Box>
+                  <ElementImpactTable
+                    elements={ifcElementsWithImpacts}
+                    outputFormat={outputFormat}
+                    displayMode={displayMode}
+                    ebfNumeric={ebfNumeric}
+                  />
                 )}
               </Paper>
             </>
@@ -1606,12 +1731,13 @@ export default function LCACalculatorComponent(): JSX.Element {
         projectId={selectedProject?.value}
         displayMode={displayMode}
         ebfNumeric={ebfNumeric}
-        calculatedElements={calculatedElements}
+        ifcElementsWithImpacts={ifcElementsWithImpacts}
         onSave={handleSave}
         calculator={calculator}
         materialDensities={materialDensities}
         outputFormat={outputFormat}
         kbobMaterials={kbobMaterials}
+        aggregatedMaterialImpacts={aggregatedMaterialImpacts}
       />
       {bulkMatchingDialog}
       {successDialog}

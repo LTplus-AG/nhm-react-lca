@@ -24,10 +24,10 @@ dist-ssr
 *.sw?
 
 .vercel
-.env
-.env.production
+
+
 kbob_materials.db
 kbob_materials.db.wal
-.env.fastbim
-.env.development
+.env*
 oldenv
+.env.test

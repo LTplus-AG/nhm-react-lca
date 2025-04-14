@@ -193,10 +193,10 @@ class KafkaService {
 
         // Map batch elements (material instances) to the final LcaData format
         const kafkaLcaData: LcaData[] = batch.map((materialInstance, index) => {
-          // Calculate absolute impacts for this material instance
-          const gwpAbs = materialInstance.impact.gwp || 0;
-          const ubpAbs = materialInstance.impact.ubp || 0;
-          const penrAbs = materialInstance.impact.penr || 0;
+          // Use impacts directly from the material instance
+          const gwpAbs = materialInstance.impact?.gwp || 0;
+          const ubpAbs = materialInstance.impact?.ubp || 0;
+          const penrAbs = materialInstance.impact?.penr || 0;
 
           // Calculate relative impacts based on overall totals
           const gwpRel = totals.totalGwp !== 0 ? gwpAbs / totals.totalGwp : 0;
@@ -209,20 +209,20 @@ class KafkaService {
 
           // Use the parent element's global_id (or fallback) as the primary ID
           const id =
-            materialInstance.global_id ||
-            materialInstance.element_id ||
-            `unknown_element_${index}`;
+            materialInstance.element_global_id || `unknown_element_${index}`;
 
           // Log the mapping details
           console.log(
             `[Kafka Map - Material] ID: ${id}, KBOB: ${matKbobValue}, GWP_Abs: ${gwpAbs.toFixed(
               2
-            )}, Name: ${materialInstance.material_name}`
+            )}, Name: ${materialInstance.material_name}, Seq: ${
+              materialInstance.sequence
+            }`
           );
 
           return {
-            id: id, // Parent Element GlobalID (or fallback)
-            sequence: materialInstance.sequence ?? index, // Use sequence from material instance, fallback to batch index
+            id: id, // Use the element's ID from the instance
+            sequence: materialInstance.sequence ?? index, // Use sequence from material instance
             mat_kbob: matKbobValue, // Material-specific KBOB ID
             gwp_relative: gwpRel,
             gwp_absolute: gwpAbs,
