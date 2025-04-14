@@ -18,8 +18,9 @@ import {
   TableRow,
   Chip,
   CircularProgress,
+  Grid,
 } from "@mui/material";
-import { Material, KbobMaterial, OutputFormats } from "../../types/lca.types";
+import { Material, OutputFormats, KbobMaterial } from "../../types/lca.types";
 import { BUILDING_LIFETIME_YEARS } from "../../utils/constants";
 import { LCACalculator } from "../../utils/lcaCalculator";
 import { DisplayMode } from "../../utils/lcaDisplayHelper";
@@ -34,14 +35,9 @@ interface ReviewDialogProps {
   projectId?: string;
   displayMode: DisplayMode;
   ebfNumeric: number | null;
-  totalImpact: {
-    gwp: number;
-    ubp: number;
-    penr: number;
-    modelledMaterials: number;
-    unmodelledMaterials: number;
-    totalElementCount: number;
-  };
+  calculator: LCACalculator;
+  materialDensities: Record<string, number>;
+  outputFormat: OutputFormats;
   calculatedElements: {
     id: string;
     element_type: string;
@@ -63,25 +59,22 @@ interface ReviewDialogProps {
     };
   }[];
   onSave: (data: any) => Promise<void>;
-  outputFormat?: OutputFormats;
-  calculator?: LCACalculator;
+  kbobMaterials: KbobMaterial[];
 }
 
 const ReviewDialog: React.FC<ReviewDialogProps> = ({
   open,
   onClose,
-  onSubmit,
   modelledMaterials,
   matches,
-  currentImpact,
   projectId,
   displayMode,
   ebfNumeric,
-  totalImpact,
+  calculator,
+  materialDensities,
   calculatedElements,
   onSave,
-  outputFormat,
-  calculator,
+  kbobMaterials,
 }) => {
   const [tabValue, setTabValue] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -107,10 +100,6 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
       return value / (BUILDING_LIFETIME_YEARS * ebfNumeric);
     }
     return value;
-  };
-
-  const getUnitSuffix = (): string => {
-    return displayMode === "relative" ? "/m²·Jahr" : "";
   };
 
   const getDecimalPrecision = (value: number): number => {
@@ -142,11 +131,6 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
       const dataToSave = {
         ifcData: {
           elements: calculatedElements,
-          totalImpact: {
-            gwp: totalImpact.gwp,
-            ubp: totalImpact.ubp,
-            penr: totalImpact.penr,
-          },
         },
         // Include EBF value if available
         ebfValue: ebfNumeric !== null ? ebfNumeric.toString() : undefined,
@@ -168,11 +152,43 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     }
   };
 
-  // Count how many materials are matched
-  const matchedCount = modelledMaterials.filter((m) => matches[m.id]).length;
-  const totalCount = modelledMaterials.length;
-  const matchPercentage =
-    totalCount > 0 ? (matchedCount / totalCount) * 100 : 0;
+  // Calculate required values inside the component
+  const totalElementCount = modelledMaterials.filter(
+    (m) => matches[m.id]
+  ).length;
+
+  // Use calculateGrandTotal for each indicator
+  // Note: calculateGrandTotal returns a formatted string. We might need raw numbers later.
+  const gwpFormatted = calculator.calculateGrandTotal(
+    modelledMaterials,
+    matches,
+    kbobMaterials,
+    OutputFormats.GWP,
+    materialDensities,
+    undefined,
+    displayMode,
+    ebfNumeric
+  );
+  const ubpFormatted = calculator.calculateGrandTotal(
+    modelledMaterials,
+    matches,
+    kbobMaterials,
+    OutputFormats.UBP,
+    materialDensities,
+    undefined,
+    displayMode,
+    ebfNumeric
+  );
+  const penrFormatted = calculator.calculateGrandTotal(
+    modelledMaterials,
+    matches,
+    kbobMaterials,
+    OutputFormats.PENR,
+    materialDensities,
+    undefined,
+    displayMode,
+    ebfNumeric
+  );
 
   // Summary content to show impact results
   const summaryContent = (
@@ -180,102 +196,111 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
       sx={{
         display: "flex",
         flexDirection: "column",
-        gap: 3,
-        backgroundColor: "background.paper",
-        borderRadius: 1,
-        p: 3,
+        gap: (theme) => theme.spacing(3),
+        p: (theme) => theme.spacing(3),
+        bgcolor: "background.paper",
       }}
     >
-      <Typography variant="h6" component="h3" gutterBottom>
+      <Typography variant="h6" component="h3">
         Gesamtbilanz
       </Typography>
 
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
-        <Box sx={{ width: "30%" }}>
-          <Typography
-            variant="subtitle2"
-            sx={{ color: "text.secondary", mb: 0.5 }}
-          >
+      <Grid
+        container
+        spacing={2}
+        sx={{ borderBottom: 1, borderColor: "divider", pb: 3, mb: 2 }}
+      >
+        <Grid item xs={12} sm={4}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
             CO₂-eq
           </Typography>
           <Typography variant="h5" sx={{ fontWeight: "bold" }}>
-            {formatDisplayValue(totalImpact.gwp)} kg{getUnitSuffix()}
+            {gwpFormatted}
           </Typography>
-        </Box>
+        </Grid>
 
-        <Box sx={{ width: "30%" }}>
-          <Typography
-            variant="subtitle2"
-            sx={{ color: "text.secondary", mb: 0.5 }}
-          >
+        <Grid item xs={12} sm={4}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
             UBP
           </Typography>
           <Typography variant="h5" sx={{ fontWeight: "bold" }}>
-            {formatDisplayValue(totalImpact.ubp)} UBP{getUnitSuffix()}
+            {ubpFormatted}
           </Typography>
-        </Box>
+        </Grid>
 
-        <Box sx={{ width: "30%" }}>
-          <Typography
-            variant="subtitle2"
-            sx={{ color: "text.secondary", mb: 0.5 }}
-          >
+        <Grid item xs={12} sm={4}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
             Primärenergie nicht erneuerbar
           </Typography>
           <Typography variant="h5" sx={{ fontWeight: "bold" }}>
-            {formatDisplayValue(totalImpact.penr)} kWh{getUnitSuffix()}
+            {penrFormatted}
           </Typography>
-        </Box>
-      </Box>
+        </Grid>
+      </Grid>
 
-      <Box
+      <Paper
+        elevation={0}
         sx={{
-          bgcolor: "background.default",
+          bgcolor: (theme) => theme.palette.grey[50],
           p: 2,
           borderRadius: 1,
-          mt: 2,
         }}
       >
-        <Typography variant="subtitle2" sx={{ mb: 2 }}>
+        <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: "medium" }}>
           Übersicht
         </Typography>
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-          <Typography variant="body2" color="text.secondary">
-            Zugeordnete Materialien:
-          </Typography>
-          <Typography variant="body2" fontWeight="medium">
-            {totalImpact.modelledMaterials}
-          </Typography>
-        </Box>
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-          <Typography variant="body2" color="text.secondary">
-            Elemente:
-          </Typography>
-          <Typography variant="body2" fontWeight="medium">
-            {totalImpact.totalElementCount}
-          </Typography>
-        </Box>
-        {ebfNumeric !== null && (
-          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+        <Grid container spacing={1} rowSpacing={1.5}>
+          <Grid item xs={6}>
             <Typography variant="body2" color="text.secondary">
-              EBF:
+              Zugeordnete Materialien:
             </Typography>
+          </Grid>
+          <Grid item xs={6} sx={{ textAlign: "right" }}>
             <Typography variant="body2" fontWeight="medium">
-              {formatNumber(ebfNumeric, 0)} m²
+              {totalElementCount}
             </Typography>
-          </Box>
-        )}
-        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-          <Typography variant="body2" color="text.secondary">
-            Anzeigemodus:
-          </Typography>
-          <Typography variant="body2" fontWeight="medium">
-            {displayMode === "relative"
-              ? `pro m²·Jahr (gem. SIA 2032)`
-              : "Absolut"}
-          </Typography>
-        </Box>
-      </Box>
+          </Grid>
+
+          <Grid item xs={6}>
+            <Typography variant="body2" color="text.secondary">
+              Elemente:
+            </Typography>
+          </Grid>
+          <Grid item xs={6} sx={{ textAlign: "right" }}>
+            <Typography variant="body2" fontWeight="medium">
+              {totalElementCount}
+            </Typography>
+          </Grid>
+
+          {ebfNumeric !== null && (
+            <>
+              <Grid item xs={6}>
+                <Typography variant="body2" color="text.secondary">
+                  EBF:
+                </Typography>
+              </Grid>
+              <Grid item xs={6} sx={{ textAlign: "right" }}>
+                <Typography variant="body2" fontWeight="medium">
+                  {formatNumber(ebfNumeric, 0)} m²
+                </Typography>
+              </Grid>
+            </>
+          )}
+
+          <Grid item xs={6}>
+            <Typography variant="body2" color="text.secondary">
+              Anzeigemodus:
+            </Typography>
+          </Grid>
+          <Grid item xs={6} sx={{ textAlign: "right" }}>
+            <Typography variant="body2" fontWeight="medium">
+              {displayMode === "relative"
+                ? `pro m²·Jahr (gem. SIA 2032)`
+                : "Absolut"}
+            </Typography>
+          </Grid>
+        </Grid>
+      </Paper>
     </Box>
   );
 
@@ -291,11 +316,11 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
         >
           <Typography variant="h6">Ökobilanz überprüfen</Typography>
           <Chip
-            label={`${formatNumber(matchPercentage, 0)}% zugeordnet`}
+            label={`${formatNumber(totalElementCount, 0)} Elemente`}
             color={
-              matchPercentage >= 80
+              totalElementCount >= 80
                 ? "success"
-                : matchPercentage >= 50
+                : totalElementCount >= 50
                 ? "warning"
                 : "error"
             }

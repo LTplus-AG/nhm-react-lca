@@ -56,15 +56,12 @@ export class LCACalculator {
 
     // Calculate impacts for modelled materials
     for (const material of materials) {
-      console.log("Processing material:", material);
       const kbobMaterial = kbobMaterialMap.get(matches[material.id]);
-      console.log("Found KBOB material:", kbobMaterial);
       const impacts = LCAImpactCalculator.calculateMaterialImpact(
         material,
         kbobMaterial,
         materialDensities
       );
-      console.log("Calculated impacts:", impacts);
 
       if (impacts.gwp > 0 || impacts.ubp > 0 || impacts.penr > 0) {
         totalGWP += impacts.gwp;
@@ -125,7 +122,6 @@ export class LCACalculator {
     matches: Record<string, string>,
     kbobMaterials: KbobMaterial[],
     outputFormat: OutputFormats,
-    unmodelledMaterials: UnmodelledMaterial[] = [],
     materialDensities: Record<string, number> = {},
     lifetime?: number,
     displayMode: DisplayMode = "total",
@@ -146,7 +142,6 @@ export class LCACalculator {
       materials,
       matches,
       kbobMaterials,
-      unmodelledMaterials,
       materialDensities,
       outputFormat
     );

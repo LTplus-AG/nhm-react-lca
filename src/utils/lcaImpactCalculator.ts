@@ -5,7 +5,6 @@ import {
   MaterialImpact,
   OutputFormats,
 } from "../types/lca.types";
-import { DisplayMode } from "./lcaDisplayHelper";
 
 export class LCAImpactCalculator {
   /**
@@ -17,10 +16,6 @@ export class LCAImpactCalculator {
     materialDensities?: Record<string, number>
   ): MaterialImpact {
     if (!material || !kbobMaterial) {
-      console.log("Missing material or KBOB material:", {
-        material,
-        kbobMaterial,
-      });
       return { gwp: 0, ubp: 0, penr: 0 };
     }
 
@@ -28,15 +23,6 @@ export class LCAImpactCalculator {
     const density = materialDensities?.[material.id] || kbobMaterial.density;
     const volume = typeof material.volume === "number" ? material.volume : 0;
     const mass = volume * density;
-
-    console.log("Calculating impact with:", {
-      density,
-      volume,
-      mass,
-      gwp: kbobMaterial.gwp,
-      ubp: kbobMaterial.ubp,
-      penr: kbobMaterial.penr,
-    });
 
     return {
       gwp: mass * kbobMaterial.gwp,
@@ -52,7 +38,6 @@ export class LCAImpactCalculator {
     materials: Material[],
     matches: Record<string, string>,
     kbobMaterials: KbobMaterial[],
-    unmodelledMaterials: UnmodelledMaterial[] = [],
     materialDensities: Record<string, number> = {},
     outputFormat: OutputFormats = OutputFormats.GWP
   ): number {
@@ -69,32 +54,6 @@ export class LCAImpactCalculator {
           const volume = material.volume;
           const density =
             materialDensities[material.id] || kbobMaterial.density || 0;
-          const mass = volume * density;
-
-          if (mass > 0) {
-            switch (outputFormat) {
-              case OutputFormats.GWP:
-                totalValue += mass * (kbobMaterial.gwp || 0);
-                break;
-              case OutputFormats.UBP:
-                totalValue += mass * (kbobMaterial.ubp || 0);
-                break;
-              case OutputFormats.PENR:
-                totalValue += mass * (kbobMaterial.penr || 0);
-                break;
-            }
-          }
-        }
-      }
-    });
-
-    // Calculate for unmodelled materials
-    unmodelledMaterials.forEach((material) => {
-      if (material.kbobId && typeof material.volume === "number") {
-        const kbobMaterial = kbobMaterialMap.get(material.kbobId);
-        if (kbobMaterial) {
-          const volume = material.volume;
-          const density = kbobMaterial.density || 0;
           const mass = volume * density;
 
           if (mass > 0) {

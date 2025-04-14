@@ -506,19 +506,19 @@ wss.on("connection", (ws) => {
           // Load materials from QTO database elements
           if (projectElements && projectElements.length > 0) {
             console.log("Creating material aggregation from elements");
-
-            // Extract and aggregate materials from elements
             const materialMap = new Map<string, number>();
 
             projectElements.forEach((element: QtoElement) => {
-              // Check if materials exist directly on the element (as in the example)
-              if (Array.isArray(element.materials)) {
-                element.materials.forEach((material) => {
-                  if (material && typeof material === "object") {
-                    // Normalize the material name to remove numbering
-                    const name = normalizeMaterialName(
-                      material.name || "Unknown"
-                    );
+              const materialsArray = element.materials; // Get the array
+
+              if (Array.isArray(materialsArray) && materialsArray.length > 0) {
+                materialsArray.forEach((material) => {
+                  if (
+                    material &&
+                    typeof material === "object" &&
+                    typeof material.name === "string"
+                  ) {
+                    const name = normalizeMaterialName(material.name);
                     const volume = parseFloat(
                       typeof material.volume === "string"
                         ? material.volume
@@ -526,47 +526,22 @@ wss.on("connection", (ws) => {
                     );
 
                     if (!isNaN(volume) && volume > 0) {
-                      if (materialMap.has(name)) {
-                        materialMap.set(
-                          name,
-                          (materialMap.get(name) || 0) + volume
-                        );
-                      } else {
-                        materialMap.set(name, volume);
-                      }
+                      materialMap.set(
+                        name,
+                        (materialMap.get(name) || 0) + volume
+                      );
+                    } else {
+                      // Optional: Log materials with zero/invalid volume if needed
+                      // console.log(`Skipping material '${name}' in element ${element._id} due to zero/invalid volume: ${material.volume}`);
                     }
+                  } else {
+                    // Optional: Log if a material entry is invalid
+                    // console.warn(`Invalid material entry in element ${element._id}:`, material);
                   }
                 });
-              }
-              // Also check if materials exist in properties (as in the previous implementation)
-              else if (
-                element.properties &&
-                Array.isArray(element.properties.materials)
-              ) {
-                element.properties.materials.forEach((material) => {
-                  if (material && typeof material === "object") {
-                    // Normalize the material name to remove numbering
-                    const name = normalizeMaterialName(
-                      material.name || "Unknown"
-                    );
-                    const volume = parseFloat(
-                      typeof material.volume === "string"
-                        ? material.volume
-                        : material.volume?.toString() || "0"
-                    );
-
-                    if (!isNaN(volume) && volume > 0) {
-                      if (materialMap.has(name)) {
-                        materialMap.set(
-                          name,
-                          (materialMap.get(name) || 0) + volume
-                        );
-                      } else {
-                        materialMap.set(name, volume);
-                      }
-                    }
-                  }
-                });
+              } else {
+                // Optional: Log elements with no materials array or empty array
+                // console.log(`Element ${element._id} has no materials or an empty materials array.`);
               }
             });
 
@@ -586,8 +561,8 @@ wss.on("connection", (ws) => {
                 projectId,
                 name: projectName,
                 ifcData: { materials }, // Send aggregated materials from QTO
-                materialMappings: savedLcaData?.materialMappings || {}, // Use saved mappings if available
-                ebf: savedLcaData?.ebf || null, // Send saved EBF value
+                materialMappings: savedLcaData?.materialMappings || {},
+                ebf: savedLcaData?.ebf || null,
                 messageId: data.messageId,
               })
             );
@@ -624,13 +599,6 @@ wss.on("connection", (ws) => {
 
       // Handle saving project materials
       if (data.type === "save_project_materials") {
-        console.log(
-          `>>> ENTERING save_project_materials handler. Message ID: ${
-            data.messageId
-          }, Project ID: ${
-            data.projectId
-          }, Timestamp: ${new Date().toISOString()}`
-        );
         const { projectId, ifcData, materialMappings, ebfValue } = data;
         if (!projectId) {
           ws.send(
@@ -726,7 +694,7 @@ wss.on("connection", (ws) => {
           `Saved/Updated LCA results summary for project ${projectId}`
         );
 
-        // --- Refactored Emission Calculation: Per Material Instance ---
+        // Calculate and Save Element Emissions
         const qtoElements = await qtoDb
           .collection("elements")
           .find<QtoElement>({
@@ -738,7 +706,7 @@ wss.on("connection", (ws) => {
           `Found ${qtoElements.length} active QTO elements for emission calculation.`
         );
 
-        const materialInstancesWithEmissions: any[] = []; // New array for material instances
+        const elementsWithEmissions: any[] = [];
         const materialLibrary = await lcaDb
           .collection("materialLibrary")
           .find({})
@@ -750,181 +718,185 @@ wss.on("connection", (ws) => {
           totalPenr = 0;
 
         for (const qtoElement of qtoElements) {
-          const materialsInElement = qtoElement.materials || [];
-          const elementGlobalId = qtoElement.global_id; // Get element's global ID
-          const elementIdStr = qtoElement._id.toString(); // Get element's MongoDB ID
-          let materialSequence = 0; // Initialize sequence counter for this element
+          const elementEmissions = { gwp: 0, ubp: 0, penr: 0 };
+          let elementHasCalculatedMaterials = false;
+          let primaryKbobId: string | null = null;
+          const materialsInElement = qtoElement.materials || []; // Default to empty array
 
           if (
-            !Array.isArray(materialsInElement) ||
-            materialsInElement.length === 0
+            Array.isArray(materialsInElement) &&
+            materialsInElement.length > 0
           ) {
-            console.log(
-              `  [Elem: ${elementIdStr}] No materials array found or empty, skipping.`
-            );
-            continue; // Skip elements without materials
-          }
-
-          for (const material of materialsInElement) {
-            if (!material || typeof material.name !== "string") {
-              console.log(
-                `  [Elem: ${elementIdStr}] Skipping invalid material entry:`,
-                material
-              );
-              continue; // Skip invalid material entries
-            }
-
-            const normalizedQtoMatName = normalizeMaterialName(material.name);
-            let mappedKbobId: string | null = null;
-            let materialImpact = { gwp: 0, ubp: 0, penr: 0 }; // Impact for this specific material instance
-
-            // Log material being processed
-            console.log(
-              `  [Elem: ${elementIdStr} / ${
-                elementGlobalId || "No GlobalID"
-              }] Processing material: '${
-                material.name
-              }' (Normalized QTO: '${normalizedQtoMatName}')`
-            );
-
-            // Find KBOB mapping
-            for (const [currentModelMatId, kbobId] of Object.entries(
-              materialMappings || {}
-            )) {
-              const normalizedModelMatId =
-                normalizeMaterialName(currentModelMatId);
-              if (normalizedModelMatId === normalizedQtoMatName) {
-                mappedKbobId = kbobId as string;
-                console.log(
-                  `    --> Match found! Mapped KBOB ID: ${mappedKbobId}`
+            for (const material of materialsInElement) {
+              if (!material || typeof material.name !== "string") {
+                console.warn(
+                  `[Elem: ${qtoElement._id}] Skipping invalid material entry:`,
+                  material
                 );
-                break;
+                continue;
               }
-            }
+              const normalizedQtoMatName = normalizeMaterialName(material.name);
+              let mappedKbobId: string | null = null;
+              let modelMatIdKey: string | null = null; // For logging
 
-            // Calculate impact if mapped
-            if (mappedKbobId) {
-              const kbobMat = kbobMap.get(mappedKbobId);
-              if (kbobMat) {
-                const volume = parseFloat(material.volume?.toString() || "0");
-                const density = kbobMat.density || 0;
-                if (
-                  !isNaN(volume) &&
-                  volume > 0 &&
-                  !isNaN(density) &&
-                  density > 0
-                ) {
-                  const mass = volume * density;
-                  materialImpact.gwp = mass * (kbobMat.gwp || 0);
-                  materialImpact.ubp = mass * (kbobMat.ubp || 0);
-                  materialImpact.penr = mass * (kbobMat.penr || 0);
+              // Log material being processed
+              console.log(
+                `  [Elem: ${qtoElement._id}] Processing material: '${material.name}' (Normalized QTO: '${normalizedQtoMatName}')`
+              );
+
+              for (const [currentModelMatId, kbobId] of Object.entries(
+                materialMappings || {}
+              )) {
+                const normalizedModelMatId =
+                  normalizeMaterialName(currentModelMatId);
+                // Log comparison
+                console.log(
+                  `    Comparing QTO '${normalizedQtoMatName}' with Mapping Key '${currentModelMatId}' (Normalized Key: '${normalizedModelMatId}')`
+                );
+                if (normalizedModelMatId === normalizedQtoMatName) {
+                  mappedKbobId = kbobId as string;
+                  modelMatIdKey = currentModelMatId; // Store the key used for mapping
                   console.log(
-                    `    --> Calculated Impacts: GWP=${materialImpact.gwp.toFixed(
-                      2
-                    )}, UBP=${materialImpact.ubp.toFixed(
-                      2
-                    )}, PENR=${materialImpact.penr.toFixed(2)}`
+                    `    --> Match found! Mapped KBOB ID: ${mappedKbobId} (using key '${modelMatIdKey}')`
                   );
-                  // Add to totals
-                  totalGwp += materialImpact.gwp;
-                  totalUbp += materialImpact.ubp;
-                  totalPenr += materialImpact.penr;
+                  // Set primaryKbobId when the first match is found
+                  if (!primaryKbobId) {
+                    primaryKbobId = mappedKbobId;
+                  }
+                  break;
+                }
+              }
+
+              if (mappedKbobId) {
+                const kbobMat = kbobMap.get(mappedKbobId);
+                if (kbobMat) {
+                  console.log(
+                    `    --> Found KBOB data for ID ${mappedKbobId}: Density=${kbobMat.density}`
+                  );
+                  const volume = parseFloat(material.volume?.toString() || "0");
+                  const density = kbobMat.density || 0;
+                  console.log(`    --> Volume: ${volume}, Density: ${density}`);
+                  if (
+                    !isNaN(volume) &&
+                    volume > 0 &&
+                    !isNaN(density) &&
+                    density > 0
+                  ) {
+                    const mass = volume * density;
+                    const gwpImpact = mass * (kbobMat.gwp || 0);
+                    const ubpImpact = mass * (kbobMat.ubp || 0);
+                    const penrImpact = mass * (kbobMat.penr || 0);
+                    console.log(
+                      `    --> Calculated Impacts: GWP=${gwpImpact.toFixed(
+                        2
+                      )}, UBP=${ubpImpact.toFixed(
+                        2
+                      )}, PENR=${penrImpact.toFixed(2)}`
+                    );
+                    elementEmissions.gwp += gwpImpact;
+                    elementEmissions.ubp += ubpImpact;
+                    elementEmissions.penr += penrImpact;
+                    elementHasCalculatedMaterials = true;
+                  } else {
+                    console.log(
+                      `    --> Skipping calculation: Invalid volume (${volume}) or density (${density}).`
+                    );
+                  }
                 } else {
                   console.log(
-                    `    --> Skipping calculation: Invalid volume (${volume}) or density (${density}).`
+                    `    --> KBOB data not found in kbobMap for mapped ID: ${mappedKbobId}`
                   );
                 }
               } else {
-                console.log(
-                  `    --> KBOB data not found in kbobMap for mapped ID: ${mappedKbobId}`
-                );
+                console.log(`    --> No KBOB mapping found.`); // More specific message
               }
-            } else {
-              console.log(`    --> No KBOB mapping found.`);
             }
+          }
 
-            // Add material instance to the list
-            materialInstancesWithEmissions.push({
-              element_id: elementIdStr, // Original element MongoDB ID
-              global_id: elementGlobalId, // Original element GlobalID (prioritized for Kafka ID)
+          if (elementHasCalculatedMaterials) {
+            elementsWithEmissions.push({
+              qto_element_id: qtoElement._id.toString(), // Reference QTO element
+              project_id: projectId,
+              ifc_id: qtoElement.ifc_id,
+              global_id: qtoElement.global_id,
               ifc_class: qtoElement.ifc_class,
+              name: qtoElement.name,
+              type_name: qtoElement.type_name,
               level: qtoElement.level,
-              is_structural: qtoElement.is_structural,
-              material_name: material.name, // Specific material name
-              material_volume: parseFloat(material.volume?.toString() || "0"),
-              kbob_id: mappedKbobId || "UNKNOWN_KBOB", // KBOB ID for this material
-              impact: materialImpact, // Calculated impact for this material instance
-              sequence: materialSequence++, // Assign and increment sequence for this material
+              quantity: qtoElement.quantity,
+              classification: qtoElement.classification,
+              materials: materialsInElement, // Keep original materials list
+              impact: elementEmissions,
+              calculated_at: new Date(),
+              // Add is_structural explicitly if it exists in qtoElement
+              ...(qtoElement.is_structural !== undefined && {
+                is_structural: qtoElement.is_structural,
+              }),
             });
-          } // End loop through materials in element
-        } // End loop through elements
-
+          }
+        }
         console.log(
-          `Processed ${materialInstancesWithEmissions.length} material instances.`
+          `Calculated emissions for ${elementsWithEmissions.length} elements.`
         );
-        const totals = { totalGwp, totalUbp, totalPenr };
-        console.log("Calculated Totals:", totals);
 
-        // --- Temporarily removing DB saving of emissions ---
-        /*
-        // Save element emissions (Needs refactoring for material-based storage)
+        // Calculate totals
+        for (const element of elementsWithEmissions) {
+          totalGwp += element.impact.gwp;
+          totalUbp += element.impact.ubp;
+          totalPenr += element.impact.penr;
+        }
+        const totals = { totalGwp, totalUbp, totalPenr };
+
+        // Save element emissions
         if (elementsWithEmissions.length > 0) {
           const elementEmissionsCollection = lcaDb.collection(
             config.mongodb.collections.elementEmissions
           );
-          // This needs to be adapted to store materialInstancesWithEmissions
-          await elementEmissionsCollection.deleteMany({ project_id: projectId });
+          await elementEmissionsCollection.deleteMany({
+            project_id: projectId,
+          });
           await elementEmissionsCollection.insertMany(elementsWithEmissions);
           console.log(
             `Saved ${elementsWithEmissions.length} element emissions to DB.`
           );
         }
-        */
 
-        // --- Prepare data for Kafka ---
-        console.log(
-          "Material Instances Prepared for Kafka:",
-          JSON.stringify(materialInstancesWithEmissions, null, 2)
+        // Map to LcaElementData format first
+        const lcaElementsForKafka: LcaElementData[] = elementsWithEmissions.map(
+          (elem, index) => ({
+            id:
+              elem.qto_element_id || elem._id?.toString() || `unknown_${index}`,
+            category: elem.ifc_class || elem.category || "unknown",
+            level: elem.level || "",
+            is_structural: elem.is_structural ?? false,
+            materials: elem.materials.map((material: any) => ({
+              name: material.name || "Unknown",
+              volume: parseFloat(material.volume?.toString() || "0"),
+              impact: material.impact || undefined,
+            })),
+            impact: elem.impact,
+            sequence: index,
+          })
         );
 
-        // Check if there's anything to send
-        if (materialInstancesWithEmissions.length === 0 || !kafkaMetadata) {
-          console.log(
-            "No material instances with emissions calculated or missing Kafka metadata. Skipping Kafka send."
-          );
-          ws.send(
-            JSON.stringify({
-              type: "materials_saved", // Or a more specific status
-              projectId,
-              message:
-                "LCA summary saved. No material emissions calculated or metadata missing.",
-              messageId: data.messageId,
-            })
-          );
-        } else {
-          // Send the flat list of material instances to Kafka
-          await kafkaService.sendLcaBatchToKafka(
-            materialInstancesWithEmissions, // Pass the material instances list
-            kafkaMetadata,
-            totals
-          );
+        // Corrected: Directly call kafkaService.sendLcaBatchToKafka with 3 arguments
+        await kafkaService.sendLcaBatchToKafka(
+          lcaElementsForKafka,
+          kafkaMetadata,
+          totals
+        );
 
-          ws.send(
-            JSON.stringify({
-              type: "materials_saved",
-              projectId,
-              message: `LCA summary saved. Sent ${materialInstancesWithEmissions.length} material instances to Kafka.`, // Updated message
-              messageId: data.messageId,
-            })
-          );
-        }
-      } // End 'save_project_materials' handler
+        ws.send(
+          JSON.stringify({
+            type: "materials_saved",
+            projectId,
+            messageId: data.messageId,
+          })
+        );
+      }
 
-      // SEND_LCA_DATA handler (Needs similar refactoring if used)
+      // SEND_LCA_DATA handler
       if (data.type === "send_lca_data") {
-        // TODO: This handler also needs refactoring to expect and process
-        // a flat list of material instances if it's intended to be used.
-        // For now, it remains element-based.
         const { projectId, elements } = data.payload;
         if (!projectId || !elements || !Array.isArray(elements)) {
           ws.send(
@@ -989,37 +961,27 @@ wss.on("connection", (ws) => {
 
         // Map input elements to LcaElementData format
         const lcaElementsForKafka: LcaElementData[] = elements.map(
-          (element: any, index: number) => {
-            // Prioritize global_id, then qto_element_id, then _id, then element.id
-            const id =
-              element.global_id ||
+          (element: any, index: number) => ({
+            id:
               element.qto_element_id ||
               element._id?.toString() ||
               element.id ||
-              `unknown_${index}`;
-            console.log(
-              `[Kafka Map - send_lca_data] Mapping element. ID: ${id}`
-            ); // Log ID selection
-            return {
-              id: id, // Use prioritized ID
-              category: element.ifc_class || element.category || "unknown",
-              level: element.level || "",
-              is_structural: element.is_structural ?? false,
-              materials: (element.materials || []).map((material: any) => ({
-                name: material.name || "Unknown",
-                volume: parseFloat(
-                  typeof material.volume === "string"
-                    ? material.volume
-                    : material.volume?.toString() || "0"
-                ),
-                impact: material.impact || undefined, // Include material impact if provided
-              })),
-              impact: element.impact || { gwp: 0, ubp: 0, penr: 0 },
-              mat_kbob:
-                element.mat_kbob || element.primaryKbobId || "UNKNOWN_KBOB", // Pass KBOB ID if available in input
-              sequence: index,
-            };
-          }
+              `unknown_${index}`,
+            category: element.ifc_class || element.category || "unknown",
+            level: element.level || "",
+            is_structural: element.is_structural ?? false,
+            materials: (element.materials || []).map((material: any) => ({
+              name: material.name || "Unknown",
+              volume: parseFloat(
+                typeof material.volume === "string"
+                  ? material.volume
+                  : material.volume?.toString() || "0"
+              ),
+              impact: material.impact || undefined,
+            })),
+            impact: element.impact || { gwp: 0, ubp: 0, penr: 0 },
+            sequence: index,
+          })
         );
 
         // Calculate totals

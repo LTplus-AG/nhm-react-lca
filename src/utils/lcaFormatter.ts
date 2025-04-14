@@ -25,22 +25,18 @@ export class LCAFormatter {
     type: OutputFormats,
     includeUnit = false
   ): string {
-    console.log("formatImpact called with:", { value, type, includeUnit });
 
     if (typeof value !== "number") {
-      console.log("Value is not a number, returning 0");
       return "0";
     }
 
     const formattedNumber = LCAFormatter.NUMBER_FORMAT_DE.format(
       Math.round(value)
     );
-    console.log("Formatted number:", formattedNumber);
 
     if (!includeUnit) return formattedNumber;
 
     const unit = LCAFormatter.getUnitForFormat(type);
-    console.log("Unit for format:", unit);
 
     return formattedNumber + unit;
   }
@@ -69,23 +65,14 @@ export class LCAFormatter {
     outputFormat: OutputFormats,
     showMillions: boolean = true
   ): string {
-    console.log("formatImpactValue called with:", {
-      impactResults,
-      outputFormat,
-      showMillions,
-    });
+
 
     // Get the correct property name based on the outputFormat
     const propertyName = LCAFormatter.getPropertyNameForFormat(outputFormat);
 
     // Ensure we have a numeric value, default to 0 if undefined
     const value = impactResults[propertyName] || 0;
-    console.log(
-      "Value extracted from impactResults:",
-      value,
-      "using property:",
-      propertyName
-    );
+
 
     // Get the appropriate unit
     const unit = LCAFormatter.getUnitForFormat(outputFormat);
@@ -95,12 +82,10 @@ export class LCAFormatter {
         LCAFormatter.MILLION_FORMAT_DE.format(value / 1_000_000) +
         " Mio. " +
         unit;
-      console.log("Formatted as millions:", millionValue);
       return millionValue;
     }
 
     const result = LCAFormatter.formatImpact(value, outputFormat, true);
-    console.log("Final formatted result:", result);
     return result;
   }
 

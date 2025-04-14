@@ -2,7 +2,6 @@ import React from "react";
 import { Box, Tooltip, styled } from "@mui/material";
 import SquareFootIcon from "@mui/icons-material/SquareFoot"; // Icon for relative mode
 import AllInclusiveIcon from "@mui/icons-material/AllInclusive"; // Icon for total mode
-import { BUILDING_LIFETIME_YEARS } from "../../utils/constants"; // Import constant
 import { DisplayMode } from "../../utils/lcaDisplayHelper"; // Import shared DisplayMode type
 
 interface DisplayModeToggleProps {

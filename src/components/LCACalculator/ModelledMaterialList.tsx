@@ -4,7 +4,6 @@ import {
   Paper,
   Box,
   Typography,
-  IconButton,
   TextField,
   Dialog,
   DialogTitle,
@@ -16,8 +15,7 @@ import {
 } from "@mui/material";
 import Select from "react-select";
 import { Material, KbobMaterial, OutputFormats } from "../../types/lca.types";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { LCAImpactCalculator } from "../../utils/lcaImpactCalculator";
 
 export interface MaterialOption {
   value: string;
@@ -59,7 +57,6 @@ interface DensityDialogProps {
 const DensityDialog: React.FC<DensityDialogProps> = ({
   open,
   onClose,
-  materialId,
   materialName,
   currentDensity,
   densityRange,
@@ -140,7 +137,6 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
   setMatches,
   kbobMaterialOptions,
   selectStyles,
-  onDeleteMaterial,
   handleDensityUpdate,
   materialDensities = {},
   outputFormat = OutputFormats.GWP,
@@ -190,17 +186,22 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
     kbobMaterial: KbobMaterial | undefined
   ) => {
     if (!kbobMaterial) return null;
-    const density = materialDensities[material.id] || kbobMaterial.density;
-    const volume = typeof material.volume === "number" ? material.volume : 0;
-    const mass = volume * density;
 
+    // Use LCAImpactCalculator to calculate the impact
+    const materialImpact = LCAImpactCalculator.calculateMaterialImpact(
+      material,
+      kbobMaterial,
+      materialDensities
+    );
+
+    // Return the appropriate value based on the selected output format
     switch (outputFormat) {
       case OutputFormats.GWP:
-        return mass * kbobMaterial.gwp;
+        return materialImpact.gwp;
       case OutputFormats.UBP:
-        return mass * kbobMaterial.ubp;
+        return materialImpact.ubp;
       case OutputFormats.PENR:
-        return mass * kbobMaterial.penr;
+        return materialImpact.penr;
       default:
         return null;
     }
@@ -320,21 +321,6 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
                       typography
                     );
                   })()}
-
-                  <Box sx={{ flexShrink: 0 }}>
-                    <Tooltip title="Löschen">
-                      <IconButton
-                        onClick={() => onDeleteMaterial(material.id)}
-                        size="small"
-                        color="default"
-                      >
-                        <DeleteIcon
-                          fontSize="small"
-                          sx={{ color: "grey.500" }}
-                        />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
                 </Box>
 
                 {/* Volume Badge */}

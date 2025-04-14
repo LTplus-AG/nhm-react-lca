@@ -1,7 +1,6 @@
 import {
   Box,
   Button,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -10,8 +9,6 @@ import {
   Divider,
   FormControl,
   FormLabel,
-  Grid,
-  IconButton,
   MenuItem,
   Select as MuiSelect,
   Paper,
@@ -34,23 +31,13 @@ import {
   Material,
   OutputFormatLabels,
   OutputFormats,
-  UnmodelledMaterial,
-  UnmodelledMaterials,
 } from "../types/lca.types.ts";
-import { LCACalculator } from "../utils/lcaCalculator";
-// Import fuzzy search and sorting utilities
 import { getFuzzyMatches } from "../utils/fuzzySearch";
-// Import icons
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
-
+import { LCACalculator } from "../utils/lcaCalculator";
+import { DisplayMode } from "../utils/lcaDisplayHelper";
+import DisplayModeToggle from "./LCACalculator/DisplayModeToggle";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import ReviewDialog from "./LCACalculator/ReviewDialog";
-import UnmodelledMaterialForm from "./LCACalculator/UnmodelledMaterialForm";
-// Replace YearToggle with DisplayModeToggle
-import DisplayModeToggle from "./LCACalculator/DisplayModeToggle";
-// Import DisplayMode type from helper
-import { DisplayMode } from "../utils/lcaDisplayHelper";
 
 // Import WebSocket service
 import {
@@ -62,8 +49,7 @@ import {
   saveProjectMaterials,
 } from "../services/websocketService";
 
-// Add EditMaterialDialog import near the top of the file
-import EditMaterialDialog from "./LCACalculator/EditMaterialDialog";
+import { LCAImpactCalculator } from "../utils/lcaImpactCalculator";
 
 const calculator = new LCACalculator();
 
@@ -72,9 +58,6 @@ interface MaterialOption {
   label: string;
   isDisabled?: boolean;
 }
-
-// Add new type for sort options
-type SortOption = "volume" | "name";
 
 interface MaterialOptionGroup {
   label: string;
@@ -162,8 +145,6 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [modelledMaterials, setModelledMaterials] = useState<Material[]>(
     DefaultModelledMaterials
   );
-  const [unmodelledMaterials, setUnmodelledMaterials] =
-    useState<UnmodelledMaterial[]>(UnmodelledMaterials);
   const [kbobMaterials, setKbobMaterials] = useState<KbobMaterial[]>([]);
   const [kbobLoading, setKbobLoading] = useState(true);
   const [kbobError, setKbobError] = useState<string | null>(null);
@@ -172,23 +153,9 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [materialDensities, setMaterialDensities] = useState<
     Record<string, number>
   >({});
-  const [newUnmodelledMaterial, setNewUnmodelledMaterial] =
-    useState<UnmodelledMaterial>({
-      id: "",
-      name: "",
-      volume: "",
-      ebkp: "",
-      kbobId: "",
-    });
   const [outputFormat, setOutputFormat] = useState<OutputFormats>(
     OutputFormats.GWP
   );
-  const [sortBy, setSortBy] = useState<SortOption>("volume");
-  const [sidebarContainer, setSidebarContainer] = useState<HTMLElement | null>(
-    null
-  );
-  const [editingMaterial, setEditingMaterial] =
-    useState<UnmodelledMaterial | null>(null);
   const [ifcResult, setIfcResult] = useState<IFCResult>({
     projectId: "",
     ifcData: {
@@ -198,48 +165,21 @@ export default function LCACalculatorComponent(): JSX.Element {
     },
     materialMappings: {},
   });
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [confirmationOpen, setConfirmationOpen] = useState(false);
-  const [impactPreview, setImpactPreview] = useState<{
-    currentImpact: string;
-    newImpact: string;
-    savings: string;
-    unit: string;
-  }>({
-    currentImpact: "",
-    newImpact: "",
-    savings: "",
-    unit: "",
-  });
   const [bulkMatchDialogOpen, setBulkMatchDialogOpen] = useState(false);
   const [suggestedMatches, setSuggestedMatches] = useState<
     Record<string, KbobMaterial[]>
   >({});
-
-  // Add new state for calculated elements
   const [calculatedElements, setCalculatedElements] = useState<Element[]>([]);
-
-  // Add new state for selected project
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(
     null
   );
-
-  // First, let's add some missing state definitions
-  const [showMatchedMaterials, setShowMatchedMaterials] = useState(true);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-
-  // Add new state for project options
   const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
-  // Add a loading state specifically for the initial load
   const [initialLoading, setInitialLoading] = useState(true);
-
-  // Replace showPerYear with displayMode
   const [displayMode, setDisplayMode] = useState<DisplayMode>("total");
-
-  // Add state for EBF value
   const [ebfInput, setEbfInput] = useState<string>("");
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   // Memoized numeric EBF value
   const ebfNumeric = useMemo(() => {
@@ -247,22 +187,8 @@ export default function LCACalculatorComponent(): JSX.Element {
     return !isNaN(val) && val > 0 ? val : null;
   }, [ebfInput]);
 
-  // Add state for total impact
-  const [totalImpact, setTotalImpact] = useState({
-    gwp: 0,
-    ubp: 0,
-    penr: 0,
-    modelledMaterials: 0,
-    unmodelledMaterials: 0,
-    totalElementCount: 0,
-  });
-
-  // Add state for confirmationStep and success message
-  const [confirmationStep, setConfirmationStep] = useState<1 | 2>(1);
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
-
   // Update currentImpact calculation to use display mode
-  const currentImpact = useMemo(() => {
+  const currentImpact: { currentImpact: string; unit: string } = useMemo(() => {
     if (kbobMaterials.length === 0) return { currentImpact: "0", unit: "" };
 
     const formattedValue = calculator.calculateGrandTotal(
@@ -270,54 +196,47 @@ export default function LCACalculatorComponent(): JSX.Element {
       matches,
       kbobMaterials,
       outputFormat,
-      unmodelledMaterials,
       materialDensities,
-      undefined, // No direct lifetime value
-      displayMode, // Use display mode instead of showPerYear
-      ebfNumeric // Pass EBF numeric value
+      undefined,
+      displayMode,
+      ebfNumeric
     );
 
     return {
       currentImpact: formattedValue,
-      unit: "", // Unit is now included in the formatted value
+      unit: "",
     };
   }, [
     modelledMaterials,
     matches,
     kbobMaterials,
-    unmodelledMaterials,
     materialDensities,
     outputFormat,
-    displayMode, // Add displayMode to dependencies
-    ebfNumeric, // Add ebfNumeric to dependencies
+    displayMode,
+    ebfNumeric,
   ]);
 
   // Initialize WebSocket connection
   useEffect(() => {
     initWebSocket();
 
-    // Set up status change handler
     const handleStatusChange = (status: ConnectionStatus) => {
       console.log("WebSocket status changed:", status);
     };
 
     onStatusChange(handleStatusChange);
 
-    return () => {
-      // Cleanup if needed
-    };
+    return () => {};
   }, []);
 
   // Load project materials when a project is selected
   useEffect(() => {
     const loadProjectMaterials = async () => {
       if (!selectedProject) {
-        console.log("No project selected");
-        // Clear state if no project is selected
         setModelledMaterials([]);
         setMatches({});
         setCalculatedElements([]);
-        setEbfInput(""); // Reset EBF input when no project selected
+        setEbfInput("");
         setIfcResult({
           projectId: "",
           ifcData: {
@@ -327,26 +246,14 @@ export default function LCACalculatorComponent(): JSX.Element {
           },
           materialMappings: {},
         });
-        setTotalImpact({
-          gwp: 0,
-          ubp: 0,
-          penr: 0,
-          modelledMaterials: 0,
-          unmodelledMaterials: 0,
-          totalElementCount: 0,
-        });
-        setLoading(false);
-        setMessage("");
-        setInitialLoading(false); // Ensure loading state is cleared if no project
+        setInitialLoading(false);
         return;
       }
 
-      // Reset state before loading new project data
-      console.log(`Resetting state for new project: ${selectedProject.label}`);
       setModelledMaterials([]);
       setMatches({});
       setCalculatedElements([]);
-      setEbfInput(""); // Reset EBF input when no project selected
+      setEbfInput("");
       setIfcResult({
         projectId: "",
         ifcData: {
@@ -356,24 +263,12 @@ export default function LCACalculatorComponent(): JSX.Element {
         },
         materialMappings: {},
       });
-      setTotalImpact({
-        gwp: 0,
-        ubp: 0,
-        penr: 0,
-        modelledMaterials: 0,
-        unmodelledMaterials: 0,
-        totalElementCount: 0,
-      });
-      setLoading(true); // Set loading state
-      setMessage(""); // Clear any previous messages
+      setInitialLoading(true);
 
       try {
-        console.log("Loading materials for project:", selectedProject.value);
         const projectData = await getProjectMaterials(selectedProject.value);
-        console.log("Received project data:", projectData);
 
         if (projectData && projectData.ifcData) {
-          // Store the full result as is
           setIfcResult({
             projectId: selectedProject.value,
             ifcData: projectData.ifcData,
@@ -392,7 +287,6 @@ export default function LCACalculatorComponent(): JSX.Element {
             projectData.ifcData.elements &&
             projectData.ifcData.elements.length > 0
           ) {
-            console.log("Processing elements data");
 
             // Extract unique materials from elements
             const materialMap = new Map<string, number>();
@@ -416,7 +310,6 @@ export default function LCACalculatorComponent(): JSX.Element {
               }
             });
 
-            // Convert the map to array of materials
             materialsArray = Array.from(materialMap.entries()).map(
               ([name, volume]) => ({
                 id: name, // Use name as id
@@ -426,12 +319,8 @@ export default function LCACalculatorComponent(): JSX.Element {
               })
             );
 
-            console.log("Extracted materials from elements:", materialsArray);
-
-            // Also set the calculated elements for the review dialog
             setCalculatedElements(projectData.ifcData.elements);
           } else if (projectData.ifcData.materials) {
-            console.log("Using direct materials data");
             const materials = projectData.ifcData.materials || [];
             materialsArray = materials.map((material) => ({
               id: material.name,
@@ -443,38 +332,24 @@ export default function LCACalculatorComponent(): JSX.Element {
             console.warn("No materials or elements data found");
           }
 
-          // Update modelled materials
           setModelledMaterials(materialsArray);
 
-          // Update matches from saved mappings
           if (projectData.materialMappings) {
             setMatches(projectData.materialMappings);
           }
 
-          // Set the EBF value from the loaded data if available
           if (projectData.ebf !== undefined && projectData.ebf !== null) {
             setEbfInput(projectData.ebf.toString());
-            console.log(`Loaded EBF value: ${projectData.ebf}`);
           } else {
-            setEbfInput(""); // Reset if no EBF stored
-            console.log("No EBF value available for this project.");
+            setEbfInput("");
           }
         } else {
-          console.warn("No valid data received from server");
           setModelledMaterials([]);
           setMatches({});
-          setEbfInput(""); // Reset EBF input on error
+          setEbfInput("");
         }
       } catch (error) {
-        console.error("Error loading project materials:", error);
-        setMessage("Error loading project materials. Please try again.");
-        // Reset materials to empty arrays on error
-        setModelledMaterials([]);
-        setMatches({});
-        setEbfInput(""); // Reset EBF input on error
-      } finally {
-        setLoading(false); // Ensure loading is set to false even on error
-        setInitialLoading(false); // Always clear initial loading state when done
+        setInitialLoading(false);
       }
     };
 
@@ -488,10 +363,8 @@ export default function LCACalculatorComponent(): JSX.Element {
         setKbobLoading(true);
         setKbobError(null);
         const materials = await fetchKBOBMaterials();
-        console.log(`Loaded ${materials.length} KBOB materials`);
         setKbobMaterials(materials);
       } catch (error) {
-        console.error("Error loading KBOB materials:", error);
         setKbobError(
           error instanceof Error
             ? error.message
@@ -505,76 +378,14 @@ export default function LCACalculatorComponent(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    let container = document.getElementById("sidebar");
-    if (!container) {
-      container = document.createElement("div");
-      container.id = "sidebar";
-      document.body.appendChild(container);
-    }
-    setSidebarContainer(container);
-
-    // Cleanup function
-    return () => {
-      // No event listeners to remove anymore
-    };
-  }, []);
-
-  useEffect(() => {
     if (ifcResult && ifcResult.materialMappings) {
       setMatches(ifcResult.materialMappings);
     }
   }, [ifcResult]);
 
-  const handleMatch = useCallback((modelId: string, kbobId?: string): void => {
-    setMatches((prev) => {
-      const newMatches = { ...prev };
-      if (kbobId === undefined) {
-        delete newMatches[modelId];
-      } else {
-        newMatches[modelId] = kbobId;
-      }
-      return newMatches;
-    });
-  }, []);
-
-  const handleAddUnmodelledMaterial = useCallback(
-    (e: React.FormEvent<HTMLFormElement>): void => {
-      e.preventDefault();
-      if (
-        newUnmodelledMaterial.name &&
-        newUnmodelledMaterial.ebkp &&
-        typeof newUnmodelledMaterial.volume === "number" &&
-        newUnmodelledMaterial.volume > 0
-      ) {
-        const newId =
-          Math.max(...unmodelledMaterials.map((m) => parseInt(m.id)), 100) + 1;
-        setUnmodelledMaterials((prev) => [
-          ...prev,
-          {
-            id: newId.toString(),
-            name: newUnmodelledMaterial.name,
-            volume: newUnmodelledMaterial.volume,
-            ebkp: newUnmodelledMaterial.ebkp,
-            kbobId: newUnmodelledMaterial.kbobId,
-          },
-        ]);
-        setNewUnmodelledMaterial({
-          id: "",
-          name: "",
-          volume: "",
-          ebkp: "",
-          kbobId: "",
-        });
-      }
-    },
-    [newUnmodelledMaterial, unmodelledMaterials]
-  );
-
-  const handleRemoveUnmodelledMaterial = (id: string) => {
-    setUnmodelledMaterials((prev) => prev.filter((m) => m.id !== id));
-  };
-
-  const kbobMaterialOptions = useMemo(() => {
+  const kbobMaterialOptions = useMemo(():
+    | MaterialOption[]
+    | ((materialId: string) => MaterialOption[] | MaterialOptionGroup[]) => {
     if (kbobLoading) {
       return [
         { value: "", label: "Loading KBOB materials...", isDisabled: true },
@@ -598,7 +409,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       (kbob) => kbob.densityRange || (!kbob.densityRange && kbob.density > 0)
     );
 
-    // Create base options with density information
     const baseOptions = validMaterials.map((kbob) => ({
       value: kbob.id,
       label: `${kbob.nameDE} ${
@@ -608,18 +418,19 @@ export default function LCACalculatorComponent(): JSX.Element {
       }`,
     }));
 
-    // For modelled materials tab, add suggestions
     if (activeTab === 0) {
       return (materialId: string): MaterialOption[] | MaterialOptionGroup[] => {
         const material = modelledMaterials.find((m) => m.id === materialId);
         if (!material) return baseOptions;
 
-        // Get fuzzy matches for this material's name
+        const validMaterials = kbobMaterials.filter(
+          (kbob) =>
+            kbob.densityRange || (!kbob.densityRange && kbob.density > 0)
+        );
         const suggestions = getFuzzyMatches(material.name, validMaterials, 1);
 
         if (suggestions.length === 0) return baseOptions;
 
-        // Create suggestion options with custom formatting
         const suggestionOptions = suggestions.map((kbob) => ({
           value: kbob.id,
           label: `✨ ${kbob.nameDE} ${
@@ -630,7 +441,6 @@ export default function LCACalculatorComponent(): JSX.Element {
           className: "suggestion-option",
         }));
 
-        // Group the suggestions and base options
         return [
           {
             label: "Vorschläge basierend auf Name",
@@ -644,7 +454,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       };
     }
 
-    // For unmodelled materials tab, return flat list
     return baseOptions;
   }, [kbobMaterials, kbobLoading, kbobError, activeTab, modelledMaterials]);
 
@@ -665,9 +474,7 @@ export default function LCACalculatorComponent(): JSX.Element {
       }),
       option: (provided: any, state: any) => ({
         ...provided,
-        backgroundColor: state.isSelected
-          ? theme.palette.primary.main
-          : theme.palette.background.paper,
+        backgroundColor: theme.palette.background.paper,
         color: state.isDisabled
           ? theme.palette.text.disabled
           : theme.palette.text.primary,
@@ -675,6 +482,10 @@ export default function LCACalculatorComponent(): JSX.Element {
         fontWeight: state.data.className === "suggestion-option" ? 500 : 400,
         fontSize: "0.875rem",
         padding: "8px",
+        outline: state.isSelected
+          ? `1px solid ${theme.palette.primary.main}`
+          : "none",
+        outlineOffset: "-1px",
         "&:hover": {
           backgroundColor: theme.palette.action.hover,
         },
@@ -729,35 +540,9 @@ export default function LCACalculatorComponent(): JSX.Element {
     []
   );
 
-  // Add handler for confirmation
-  const handleConfirmCalculation = async () => {
-    // Debug logging outside of render
-    console.log("Calculating total with:", {
-      matchedMaterials: modelledMaterials.filter((m) => matches[m.id]),
-      matches,
-      kbobMaterials,
-      outputFormat,
-      unmodelledMaterials,
-      materialDensities,
-    });
-
-    setLoading(true);
-    try {
-      await handleAbschliessen();
-      setConfirmationOpen(false);
-    } catch (error) {
-      console.error("Error updating LCA:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const findBestMatchesForAll = useCallback(() => {
-    console.log("=== findBestMatchesForAll STARTED ===");
-    console.log("Finding best matches for all materials");
 
     if (kbobLoading) {
-      console.log("KBOB materials are still loading, showing alert");
       alert(
         "Die KBOB-Materialien werden noch geladen. Bitte warten Sie einen Moment."
       );
@@ -772,19 +557,10 @@ export default function LCACalculatorComponent(): JSX.Element {
       return;
     }
 
-    console.log("Current matches:", matches);
-    console.log("Modelled materials:", modelledMaterials);
-    console.log("KBOB materials loaded:", kbobMaterials.length);
-
     // Get all materials that need matching
     const materialsToMatch = modelledMaterials;
-    console.log(
-      `Found ${materialsToMatch.length} materials to match:`,
-      materialsToMatch
-    );
 
     if (materialsToMatch.length === 0) {
-      console.log("No materials to match, showing alert");
       alert(
         "Es sind keine Materialien vorhanden. Bitte wählen Sie zuerst ein Projekt aus."
       );
@@ -797,61 +573,35 @@ export default function LCACalculatorComponent(): JSX.Element {
     const validMaterials = kbobMaterials.filter(
       (kbob) => kbob.densityRange || (!kbob.densityRange && kbob.density > 0)
     );
-    console.log(
-      `Using ${validMaterials.length} valid KBOB materials for matching`
-    );
 
     // Find matches for each material
     materialsToMatch.forEach((material) => {
       const materialMatches = getFuzzyMatches(material.name, validMaterials, 1);
-      console.log(
-        `Found ${materialMatches.length} matches for ${material.name}:`,
-        materialMatches.map((m) => m.nameDE)
-      );
       suggestions[material.id] = materialMatches;
     });
 
-    console.log("Setting suggested matches:", suggestions);
     setSuggestedMatches(suggestions);
-    console.log("Opening bulk match dialog");
     setBulkMatchDialogOpen(true);
-    console.log("=== findBestMatchesForAll COMPLETED ===");
   }, [modelledMaterials, matches, kbobMaterials, kbobLoading]);
 
   // Add function to apply selected matches
   const applyBulkMatches = useCallback(() => {
-    console.log("=== applyBulkMatches STARTED ===");
-    console.log("Applying bulk matches");
-    console.log("Current matches:", matches);
-    console.log("Suggested matches:", suggestedMatches);
-
     const newMatches = { ...matches };
     let matchCount = 0;
 
     Object.entries(suggestedMatches).forEach(([materialId, suggestions]) => {
-      console.log(
-        `Processing material ${materialId} with ${suggestions.length} suggestions`
-      );
       if (suggestions.length > 0) {
-        console.log(
-          `Applying match: ${materialId} -> ${suggestions[0].id} (${suggestions[0].nameDE})`
-        );
         newMatches[materialId] = suggestions[0].id;
         matchCount++;
       }
     });
-
-    console.log(`Applied ${matchCount} new matches`);
-    console.log("New matches object:", newMatches);
     setMatches(newMatches);
     setBulkMatchDialogOpen(false);
 
     // Show a success message
     if (matchCount > 0) {
-      console.log(`Showing success alert for ${matchCount} matches`);
       alert(`${matchCount} Materialien wurden erfolgreich zugeordnet.`);
     }
-    console.log("=== applyBulkMatches COMPLETED ===");
   }, [matches, suggestedMatches]);
 
   // Update the bulk matching dialog content
@@ -894,9 +644,6 @@ export default function LCACalculatorComponent(): JSX.Element {
                 );
                 const suggestion =
                   suggestions.length > 0 ? suggestions[0] : null;
-
-                console.log(`Rendering material ${materialId}:`, material);
-                console.log(`Suggestion for ${materialId}:`, suggestion);
 
                 return (
                   <Paper
@@ -950,9 +697,6 @@ export default function LCACalculatorComponent(): JSX.Element {
                               size="small"
                               color="inherit"
                               onClick={() => {
-                                console.log(
-                                  `Rejecting match for ${materialId}`
-                                );
                                 setSuggestedMatches((prev) => ({
                                   ...prev,
                                   [materialId]: [],
@@ -979,7 +723,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       <DialogActions sx={{ px: 3, pb: 3 }}>
         <Button
           onClick={() => {
-            console.log("Closing bulk match dialog");
             setBulkMatchDialogOpen(false);
           }}
           variant="outlined"
@@ -989,7 +732,6 @@ export default function LCACalculatorComponent(): JSX.Element {
         </Button>
         <Button
           onClick={() => {
-            console.log("Applying bulk matches");
             applyBulkMatches();
           }}
           variant="contained"
@@ -1001,212 +743,6 @@ export default function LCACalculatorComponent(): JSX.Element {
           Zuordnungen übernehmen
         </Button>
       </DialogActions>
-    </Dialog>
-  );
-
-  // Update the confirmation dialog content
-  const confirmationContent = (
-    <Dialog
-      open={confirmationOpen}
-      onClose={() => {
-        setConfirmationOpen(false);
-        setConfirmationStep(1);
-      }}
-      maxWidth="sm"
-      fullWidth
-    >
-      {confirmationStep === 1 ? (
-        <>
-          <DialogTitle sx={{ pb: 1 }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Typography variant="h6">Ökobilanz überprüfen</Typography>
-            </Box>
-          </DialogTitle>
-          <DialogContent>
-            <Box sx={{ py: 2 }}>
-              {modelledMaterials.filter((m) => !matches[m.id]).length > 0 && (
-                <Box sx={{ mb: 3 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {modelledMaterials.filter((m) => !matches[m.id]).length} von{" "}
-                    {modelledMaterials.length} Materialien sind nicht zugeordnet
-                    und werden nicht berücksichtigt.
-                  </Typography>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "center",
-                      mt: 2,
-                      mb: 2,
-                    }}
-                  >
-                    <Button
-                      onClick={() => {
-                        console.log(
-                          "Automatische Zuordnung vorschlagen button clicked"
-                        );
-                        findBestMatchesForAll();
-                      }}
-                      variant="outlined"
-                      color="secondary"
-                      startIcon={
-                        <Box component="span" sx={{ fontSize: "1.1em" }}>
-                          ✨
-                        </Box>
-                      }
-                      sx={{
-                        textTransform: "none",
-                        borderColor: "rgba(0, 0, 0, 0.23)",
-                        color: "text.secondary",
-                        fontWeight: 400,
-                        borderRadius: "20px",
-                        px: 2,
-                        py: 0.75,
-                        "&:hover": {
-                          borderColor: "rgba(0, 0, 0, 0.5)",
-                          backgroundColor: "rgba(0, 0, 0, 0.04)",
-                        },
-                      }}
-                    >
-                      Automatische Zuordnung vorschlagen
-                    </Button>
-                  </Box>
-                </Box>
-              )}
-              <Typography variant="body1" gutterBottom>
-                Ihre Materialzuordnungen führen zu folgenden Änderungen:
-              </Typography>
-              <Box
-                sx={{
-                  mt: 2,
-                  p: 2,
-                  bgcolor: "grey.50",
-                  borderRadius: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 1,
-                }}
-              >
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography color="text.secondary">
-                    Bisherige Emissionen:
-                  </Typography>
-                  <Typography fontWeight="medium">
-                    {impactPreview.currentImpact}
-                  </Typography>
-                </Box>
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography color="text.secondary">Update:</Typography>
-                  <Typography fontWeight="medium" color="primary.main">
-                    {impactPreview.newImpact}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    mt: 1,
-                    pt: 1,
-                    borderTop: 1,
-                    borderColor: "divider",
-                    display: "flex",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Typography fontWeight="medium">
-                    Potentielle Einsparung:
-                  </Typography>
-                  <Typography fontWeight="bold" color="primary.main">
-                    {impactPreview.savings}
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
-          </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 3 }}>
-            <Button
-              onClick={() => {
-                setConfirmationOpen(false);
-                setConfirmationStep(1);
-              }}
-              variant="outlined"
-              color="inherit"
-            >
-              Zurück
-            </Button>
-            <Button
-              onClick={() => setConfirmationStep(2)}
-              variant="contained"
-              color="primary"
-            >
-              Weiter
-            </Button>
-          </DialogActions>
-        </>
-      ) : (
-        <>
-          <DialogTitle sx={{ pb: 1 }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Typography variant="h6">
-                Ökobilanz ans Dashboard senden
-              </Typography>
-            </Box>
-          </DialogTitle>
-          <DialogContent>
-            <Box sx={{ py: 2 }}>
-              <Typography variant="body1" paragraph>
-                Bitte beachten Sie:
-              </Typography>
-              <Box component="ul" sx={{ pl: 2, mb: 2 }}>
-                <Typography
-                  component="li"
-                  variant="body2"
-                  color="text.secondary"
-                  gutterBottom
-                >
-                  Die Ökobilanz wird im Nachhaltigkeitsmonitoring Dashboard
-                  aktualisiert
-                </Typography>
-                <Typography
-                  component="li"
-                  variant="body2"
-                  color="text.secondary"
-                  gutterBottom
-                >
-                  Änderungen sind nur durch neue Materialzuordnungen oder ein
-                  IFC-Update möglich
-                </Typography>
-                <Typography
-                  component="li"
-                  variant="body2"
-                  color="text.secondary"
-                >
-                  Die Aktualisierung im Dashboard kann einige Minuten dauern
-                </Typography>
-              </Box>
-              <Typography variant="body2" sx={{ mt: 2 }}>
-                Möchten Sie die neue Ökobilanz jetzt ans Dashboard senden?
-              </Typography>
-            </Box>
-          </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 3 }}>
-            <Button
-              onClick={() => setConfirmationStep(1)}
-              variant="outlined"
-              color="inherit"
-            >
-              Zurück
-            </Button>
-            <Button
-              onClick={async () => {
-                await handleConfirmCalculation();
-                setShowSuccessMessage(true);
-              }}
-              variant="contained"
-              color="primary"
-            >
-              Ans Dashboard senden
-            </Button>
-          </DialogActions>
-        </>
-      )}
     </Dialog>
   );
 
@@ -1260,8 +796,6 @@ export default function LCACalculatorComponent(): JSX.Element {
         <Button
           onClick={() => {
             setShowSuccessMessage(false);
-            setConfirmationOpen(false);
-            setConfirmationStep(1);
           }}
           variant="contained"
           color="primary"
@@ -1318,7 +852,6 @@ export default function LCACalculatorComponent(): JSX.Element {
       <Box sx={{ display: "flex", justifyContent: "center", mt: 2, mb: 2 }}>
         <Button
           onClick={() => {
-            console.log("Automatische Zuordnung vorschlagen button clicked");
             findBestMatchesForAll();
           }}
           variant="outlined"
@@ -1352,37 +885,20 @@ export default function LCACalculatorComponent(): JSX.Element {
     setActiveTab(newValue);
   };
 
-  const handleSaveEdit = (updatedMaterial: UnmodelledMaterial) => {
-    setUnmodelledMaterials((prev) =>
-      prev.map((m) => (m.id === updatedMaterial.id ? updatedMaterial : m))
-    );
-    setEditingMaterial(null);
-  };
-
   const handleAbschliessen = async () => {
     if (!selectedProject) {
-      setMessage("Please select a project first");
       return;
     }
 
     try {
-      setLoading(true);
-
-      // Save current state to database, including EBF value
       await saveProjectMaterials(selectedProject.value, {
         ifcData: ifcResult.ifcData,
         materialMappings: matches,
-        ebfValue: ebfInput, // Include EBF input value in saved data
+        ebfValue: ebfInput,
       });
-
-      setMessage("Data saved successfully");
-      setConfirmationOpen(false);
       setShowSuccessMessage(true);
     } catch (error) {
       console.error("Error saving project materials:", error);
-      setMessage("Error saving project materials. Please try again.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1429,15 +945,14 @@ export default function LCACalculatorComponent(): JSX.Element {
           return null;
         }
 
-        // Calculate impact
+        // Use the LCAImpactCalculator to calculate impact
         const volume =
           typeof material.volume === "number" ? material.volume : 0;
-        const density = materialDensities[material.id] || kbobMaterial.density;
-        const mass = volume * density;
-
-        const gwp = mass * kbobMaterial.gwp;
-        const ubp = mass * kbobMaterial.ubp;
-        const penr = mass * kbobMaterial.penr;
+        const materialImpact = LCAImpactCalculator.calculateMaterialImpact(
+          material,
+          kbobMaterial,
+          materialDensities
+        );
 
         return {
           id: `element_${index + 1}`,
@@ -1455,9 +970,9 @@ export default function LCACalculatorComponent(): JSX.Element {
             },
           ],
           impact: {
-            gwp: parseFloat(gwp.toFixed(2)),
-            ubp: parseFloat(ubp.toFixed(2)),
-            penr: parseFloat(penr.toFixed(2)),
+            gwp: parseFloat(materialImpact.gwp.toFixed(2)),
+            ubp: parseFloat(materialImpact.ubp.toFixed(2)),
+            penr: parseFloat(materialImpact.penr.toFixed(2)),
           },
         };
       })
@@ -1466,18 +981,12 @@ export default function LCACalculatorComponent(): JSX.Element {
     return elements;
   }, [modelledMaterials, matches, kbobMaterials, materialDensities]);
 
-  // Update calculated elements when dependencies change
   useEffect(() => {
     const elements = generateCalculatedElements();
     setCalculatedElements(elements);
   }, [generateCalculatedElements, modelledMaterials, matches, kbobMaterials]);
 
-  // Add a new function for automatic bulk matching without dialog
   const autoBulkMatch = useCallback(() => {
-    console.log("Auto bulk matching all unmatched materials");
-    console.log("Current matches:", matches);
-    console.log("Modelled materials:", modelledMaterials);
-
     if (modelledMaterials.length === 0) {
       alert(
         "Es sind keine Materialien vorhanden. Bitte wählen Sie zuerst ein Projekt aus."
@@ -1485,65 +994,39 @@ export default function LCACalculatorComponent(): JSX.Element {
       return;
     }
 
-    // Get unmatched materials - a material is unmatched if it doesn't have a valid match in the matches object
-    // Force a fresh check by iterating through all modelled materials
     const unmatched: Material[] = [];
     modelledMaterials.forEach((material) => {
       const matchId = matches[material.id];
-      // Check if the match exists, is not empty, and corresponds to a valid KBOB material
       const hasValidMatch =
         matchId &&
         matchId.trim() !== "" &&
         kbobMaterials.some((m) => m.id === matchId);
-
-      console.log(
-        `Material ${material.id} (${
-          material.name
-        }): has match = ${hasValidMatch}, match value = "${
-          matchId || "undefined"
-        }"`
-      );
 
       if (!hasValidMatch) {
         unmatched.push(material);
       }
     });
 
-    console.log(`Found ${unmatched.length} unmatched materials:`, unmatched);
-
     if (unmatched.length === 0) {
       alert("Alle Materialien sind bereits korrekt zugeordnet.");
       return;
     }
 
-    // Filter valid materials (non-zero density or has density range)
     const validMaterials = kbobMaterials.filter(
       (kbob) => kbob.densityRange || (!kbob.densityRange && kbob.density > 0)
     );
-    console.log(
-      `Using ${validMaterials.length} valid KBOB materials for matching`
-    );
 
-    // Create new matches
     const newMatches = { ...matches };
     let matchCount = 0;
 
-    // Find best match for each unmatched material and apply it immediately
     unmatched.forEach((material) => {
       const bestMatches = getFuzzyMatches(material.name, validMaterials, 1);
       if (bestMatches.length > 0) {
         newMatches[material.id] = bestMatches[0].id;
         matchCount++;
-        console.log(`Matched ${material.name} with ${bestMatches[0].nameDE}`);
-      } else {
-        console.log(`No match found for ${material.name}`);
       }
     });
-
-    // Update matches
     setMatches(newMatches);
-
-    // Show success message
     if (matchCount > 0) {
       alert(`${matchCount} Materialien wurden automatisch zugeordnet.`);
     } else {
@@ -1551,56 +1034,39 @@ export default function LCACalculatorComponent(): JSX.Element {
     }
   }, [modelledMaterials, matches, kbobMaterials]);
 
-  // Update the fetchProjects function
   const fetchProjects = async () => {
     try {
       setProjectsLoading(true);
-      // Set initialLoading to true to show loading spinner
       setInitialLoading(true);
-
-      // Ensure WebSocket is initialized before fetching projects
       await initWebSocket();
-
-      // Reduce delay to improve user experience
       await new Promise((resolve) => setTimeout(resolve, 300));
-
       const projectData = await getProjects();
-
-      // Transform projects into options format
       const options = projectData.map((project) => ({
         value: project.id,
         label: project.name,
       }));
 
-      // If no projects from server, use default options
       const finalOptions =
         options.length === 0 ? DEFAULT_PROJECT_OPTIONS : options;
       setProjectOptions(finalOptions);
 
-      // Automatically select the first project if none is selected
       if (!selectedProject && finalOptions.length > 0) {
         console.log("Auto-selecting first project:", finalOptions[0].label);
         setSelectedProject(finalOptions[0]);
-        // The initialLoading state will be cleared in the loadProjectMaterials effect
       } else {
-        // If we already have a selected project, clear the initialLoading state
         setInitialLoading(false);
       }
     } catch (error) {
       console.error("Error fetching projects:", error);
-      // Use default options on error
       setProjectOptions(DEFAULT_PROJECT_OPTIONS);
 
-      // Auto-select first default project on error
       if (!selectedProject && DEFAULT_PROJECT_OPTIONS.length > 0) {
         console.log(
           "Auto-selecting first default project:",
           DEFAULT_PROJECT_OPTIONS[0].label
         );
         setSelectedProject(DEFAULT_PROJECT_OPTIONS[0]);
-        // The initialLoading state will be cleared in the loadProjectMaterials effect
       } else {
-        // If we already have a selected project, clear the initialLoading state
         setInitialLoading(false);
       }
     } finally {
@@ -1608,47 +1074,11 @@ export default function LCACalculatorComponent(): JSX.Element {
     }
   };
 
-  // Fetch projects on component mount
   useEffect(() => {
     fetchProjects();
   }, []);
 
-  // Update total impact calculation to use display mode
-  useEffect(() => {
-    if (kbobMaterials.length === 0) return;
-
-    // Use calculator.calculateImpact with displayMode and ebfNumeric
-    const results = calculator.calculateImpact(
-      modelledMaterials,
-      matches,
-      kbobMaterials,
-      unmodelledMaterials,
-      materialDensities,
-      displayMode, // Pass displayMode parameter
-      ebfNumeric // Pass ebfNumeric parameter
-    );
-
-    setTotalImpact({
-      gwp: results.gwp ?? 0, // Handle possible null return for invalid EBF
-      ubp: results.ubp ?? 0,
-      penr: results.penr ?? 0,
-      modelledMaterials: results.modelledMaterials,
-      unmodelledMaterials: results.unmodelledMaterials,
-      totalElementCount: modelledMaterials.filter((m) => matches[m.id]).length,
-    });
-  }, [
-    modelledMaterials,
-    matches,
-    kbobMaterials,
-    unmodelledMaterials,
-    materialDensities,
-    displayMode, // Add displayMode to dependencies
-    ebfNumeric, // Add ebfNumeric to dependencies
-  ]);
-
-  // Add handleSubmitReview function
   const handleSubmitReview = () => {
-    // Call handleAbschliessen to save the data and submit
     handleAbschliessen();
   };
 
@@ -1813,11 +1243,10 @@ export default function LCACalculatorComponent(): JSX.Element {
                     matches,
                     kbobMaterials,
                     outputFormat,
-                    unmodelledMaterials,
                     materialDensities,
                     undefined,
-                    displayMode, // Replace showPerYear with displayMode
-                    ebfNumeric // Add ebfNumeric parameter
+                    displayMode,
+                    ebfNumeric
                   )}
                 </Typography>
               </Box>
@@ -2006,10 +1435,7 @@ export default function LCACalculatorComponent(): JSX.Element {
                     variant="contained"
                     color="primary"
                     onClick={() => setReviewDialogOpen(true)}
-                    disabled={
-                      modelledMaterials.length === 0 &&
-                      unmodelledMaterials.length === 0
-                    }
+                    disabled={modelledMaterials.length === 0}
                     sx={{
                       fontWeight: 500,
                       textTransform: "none",
@@ -2042,14 +1468,14 @@ export default function LCACalculatorComponent(): JSX.Element {
                   }}
                 >
                   <Tab
-                    label="IFC-Materialien"
+                    label="Material"
                     sx={{
                       textTransform: "none",
                       fontWeight: 500,
                     }}
                   />
                   <Tab
-                    label="Weitere Materialien"
+                    label="Bauteile"
                     sx={{
                       textTransform: "none",
                       fontWeight: 500,
@@ -2125,286 +1551,11 @@ export default function LCACalculatorComponent(): JSX.Element {
                     )}
                   </div>
                 ) : (
-                  <>
-                    <UnmodelledMaterialForm
-                      newUnmodelledMaterial={newUnmodelledMaterial}
-                      setNewUnmodelledMaterial={setNewUnmodelledMaterial}
-                      handleAddUnmodelledMaterial={handleAddUnmodelledMaterial}
-                      kbobMaterials={kbobMaterials}
-                      kbobMaterialOptions={kbobMaterialOptions}
-                      selectStyles={selectStyles}
-                    />
-
-                    {/* Simplified material list */}
-                    <Box sx={{ mt: 3 }}>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          mb: 2,
-                          fontWeight: 600,
-                          fontSize: "1.125rem",
-                        }}
-                      >
-                        Manuell hinzugefügte Materialien
-                      </Typography>
-                      {unmodelledMaterials.length === 0 ? (
-                        <Typography variant="body2" color="text.secondary">
-                          Keine manuellen Materialien hinzugefügt.
-                        </Typography>
-                      ) : (
-                        <Grid container spacing={2}>
-                          {unmodelledMaterials.map((material) => {
-                            const matchedKbobMaterial = material.kbobId
-                              ? kbobMaterials.find(
-                                  (m) => m.id === material.kbobId
-                                )
-                              : null;
-
-                            // Calculate emission value if KBOB material is matched
-                            let emissionValue = null;
-                            if (
-                              matchedKbobMaterial &&
-                              typeof material.volume === "number"
-                            ) {
-                              const volume = material.volume;
-                              const density = matchedKbobMaterial.density;
-                              const mass = volume * density;
-
-                              switch (outputFormat) {
-                                case OutputFormats.GWP:
-                                  emissionValue =
-                                    mass * matchedKbobMaterial.gwp;
-                                  break;
-                                case OutputFormats.UBP:
-                                  emissionValue =
-                                    mass * matchedKbobMaterial.ubp;
-                                  break;
-                                case OutputFormats.PENR:
-                                  emissionValue =
-                                    mass * matchedKbobMaterial.penr;
-                                  break;
-                              }
-                            }
-
-                            // Get emission unit based on output format
-                            const getEmissionUnit = () => {
-                              switch (outputFormat) {
-                                case OutputFormats.GWP:
-                                  return "kg CO₂-eq";
-                                case OutputFormats.UBP:
-                                  return "UBP";
-                                case OutputFormats.PENR:
-                                  return "kWh";
-                                default:
-                                  return "";
-                              }
-                            };
-
-                            return (
-                              <Grid
-                                item
-                                xs={12}
-                                sm={6}
-                                md={4}
-                                key={material.id}
-                              >
-                                <Paper
-                                  elevation={0}
-                                  sx={{
-                                    p: 2,
-                                    border: 1,
-                                    borderColor: "divider",
-                                    borderRadius: 2,
-                                    height: "100%",
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    "&:hover": {
-                                      boxShadow: (theme) => theme.shadows[2],
-                                      borderColor: "transparent",
-                                    },
-                                    transition: "all 0.3s ease",
-                                  }}
-                                >
-                                  {/* Header with Material Name and Actions */}
-                                  <Box
-                                    sx={{
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      alignItems: "center",
-                                      mb: 2,
-                                    }}
-                                  >
-                                    <Typography
-                                      variant="h6"
-                                      sx={{
-                                        fontWeight: 600,
-                                        color: "text.primary",
-                                        fontSize: { xs: "1rem", sm: "1.1rem" },
-                                      }}
-                                    >
-                                      {material.name}
-                                    </Typography>
-                                    <Box>
-                                      <Tooltip title="Bearbeiten">
-                                        <IconButton
-                                          size="small"
-                                          onClick={() =>
-                                            setEditingMaterial(material)
-                                          }
-                                        >
-                                          <EditIcon
-                                            sx={{ color: "grey.500" }}
-                                          />
-                                        </IconButton>
-                                      </Tooltip>
-                                      <Tooltip title="Löschen">
-                                        <IconButton
-                                          size="small"
-                                          color="default"
-                                          onClick={() =>
-                                            handleRemoveUnmodelledMaterial(
-                                              material.id
-                                            )
-                                          }
-                                        >
-                                          <DeleteIcon
-                                            sx={{ color: "grey.500" }}
-                                          />
-                                        </IconButton>
-                                      </Tooltip>
-                                    </Box>
-                                  </Box>
-
-                                  {/* Volume Badge */}
-                                  <Box
-                                    sx={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      bgcolor: "secondary.lighter",
-                                      color: "secondary.dark",
-                                      px: 1.5,
-                                      py: 0.75,
-                                      borderRadius: 1.5,
-                                      mb: 2,
-                                      alignSelf: "flex-start",
-                                    }}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="16"
-                                      height="16"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      style={{ marginRight: "6px" }}
-                                    >
-                                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                                    </svg>
-                                    <Typography
-                                      variant="body2"
-                                      sx={{ fontWeight: 600, lineHeight: 1 }}
-                                    >
-                                      {typeof material.volume === "number"
-                                        ? material.volume.toFixed(2)
-                                        : material.volume}{" "}
-                                      m³
-                                    </Typography>
-                                  </Box>
-
-                                  {/* EBKP Badge if available */}
-                                  {material.ebkp && (
-                                    <Box
-                                      sx={{
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        bgcolor: "info.lighter",
-                                        color: "info.dark",
-                                        px: 1.5,
-                                        py: 0.75,
-                                        borderRadius: 1.5,
-                                        mb: 2,
-                                        alignSelf: "flex-start",
-                                      }}
-                                    >
-                                      <Typography
-                                        variant="body2"
-                                        sx={{ fontWeight: 600, lineHeight: 1 }}
-                                      >
-                                        EBKP: {material.ebkp}
-                                      </Typography>
-                                    </Box>
-                                  )}
-
-                                  {/* KBOB Material Information */}
-                                  <Box sx={{ mb: 2 }}>
-                                    <Typography
-                                      variant="body2"
-                                      sx={{ mb: 1, fontWeight: 500 }}
-                                    >
-                                      KBOB-Material:
-                                    </Typography>
-                                    {matchedKbobMaterial ? (
-                                      <Typography
-                                        variant="body2"
-                                        color="text.secondary"
-                                      >
-                                        {matchedKbobMaterial.nameDE}
-                                      </Typography>
-                                    ) : (
-                                      <Typography
-                                        variant="body2"
-                                        color="text.secondary"
-                                        fontStyle="italic"
-                                      >
-                                        Kein KBOB-Material zugeordnet
-                                      </Typography>
-                                    )}
-                                  </Box>
-
-                                  {/* Emission Value (if matched) */}
-                                  {matchedKbobMaterial &&
-                                    emissionValue !== null && (
-                                      <Box sx={{ mt: "auto", pt: 1 }}>
-                                        <Chip
-                                          label={`${emissionValue.toLocaleString(
-                                            "de-CH",
-                                            {
-                                              maximumFractionDigits: 2,
-                                            }
-                                          )} ${getEmissionUnit()}`}
-                                          size="small"
-                                          sx={{
-                                            bgcolor: "success.lighter",
-                                            color: "success.dark",
-                                            fontWeight: 500,
-                                            "& .MuiChip-label": {
-                                              px: 1,
-                                            },
-                                          }}
-                                        />
-                                      </Box>
-                                    )}
-                                </Paper>
-                              </Grid>
-                            );
-                          })}
-                        </Grid>
-                      )}
-                    </Box>
-
-                    <EditMaterialDialog
-                      open={!!editingMaterial}
-                      material={editingMaterial}
-                      onClose={() => setEditingMaterial(null)}
-                      onSave={handleSaveEdit}
-                      selectStyles={selectStyles}
-                      kbobMaterials={kbobMaterials}
-                      kbobMaterialOptions={kbobMaterialOptions}
-                    />
-                  </>
+                  <Box sx={{ mt: 3 }}>
+                    <Typography variant="body1" color="text.secondary">
+                      Hier werden zukünftig die IFC-Elemente angezeigt.
+                    </Typography>
+                  </Box>
                 )}
               </Paper>
             </>
@@ -2453,13 +1604,17 @@ export default function LCACalculatorComponent(): JSX.Element {
         matches={matches}
         currentImpact={currentImpact}
         projectId={selectedProject?.value}
-        displayMode={displayMode} // ADD
-        ebfNumeric={ebfNumeric} // ADD
-        totalImpact={totalImpact}
+        displayMode={displayMode}
+        ebfNumeric={ebfNumeric}
         calculatedElements={calculatedElements}
         onSave={handleSave}
+        calculator={calculator}
+        materialDensities={materialDensities}
+        outputFormat={outputFormat}
+        kbobMaterials={kbobMaterials}
       />
       {bulkMatchingDialog}
+      {successDialog}
     </Box>
   );
 }
