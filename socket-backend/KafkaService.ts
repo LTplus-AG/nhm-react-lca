@@ -187,12 +187,14 @@ class KafkaService {
       );
 
       let allBatchesSentSuccessfully = true;
+      const sentKeys = new Set<string>(); // Track sent (id::sequence) combinations for this fileId
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
+        const kafkaLcaData: LcaData[] = []; // Build the filtered data for this batch
 
-        // Map batch elements (material instances) to the final LcaData format
-        const kafkaLcaData: LcaData[] = batch.map((materialInstance, index) => {
+        // Map batch elements, filtering duplicates based on (id, sequence)
+        batch.forEach((materialInstance, indexInBatch) => {
           // Use impacts directly from the material instance
           const gwpAbs = materialInstance.impact?.gwp || 0;
           const ubpAbs = materialInstance.impact?.ubp || 0;
@@ -207,31 +209,53 @@ class KafkaService {
           // Get the KBOB ID associated with this specific material instance
           const matKbobValue = materialInstance.kbob_id || "UNKNOWN_KBOB";
 
-          // Use the parent element's global_id (or fallback) as the primary ID
+          // Determine ID and Sequence, including fallbacks
           const id =
-            materialInstance.element_global_id || `unknown_element_${index}`;
+            materialInstance.element_global_id ||
+            `unknown_element_${indexInBatch}`; // Use batch index for fallback ID
+          const sequence = materialInstance.sequence ?? indexInBatch; // Use batch index for fallback sequence
 
-          // Log the mapping details
+          const uniqueKey = `${id}::${sequence}`;
+
+          if (sentKeys.has(uniqueKey)) {
+            console.warn(
+              `[Kafka Send] Skipping duplicate key for file ${kafkaMetadata.fileId}: id='${id}', sequence='${sequence}', KBOB='${matKbobValue}', Name='${materialInstance.material_name}'`
+            );
+            return; // Skip this item
+          }
+
+          // Add key to set and create LcaData object
+          sentKeys.add(uniqueKey);
+
+          // Log the mapping details (only for items being sent)
           console.log(
             `[Kafka Map - Material] ID: ${id}, KBOB: ${matKbobValue}, GWP_Abs: ${gwpAbs.toFixed(
               2
-            )}, Name: ${materialInstance.material_name}, Seq: ${
-              materialInstance.sequence
-            }`
+            )}, Name: ${materialInstance.material_name}, Seq: ${sequence}`
           );
 
-          return {
-            id: id, // Use the element's ID from the instance
-            sequence: materialInstance.sequence ?? index, // Use sequence from material instance
-            mat_kbob: matKbobValue, // Material-specific KBOB ID
+          kafkaLcaData.push({
+            id: id,
+            sequence: sequence,
+            mat_kbob: matKbobValue,
             gwp_relative: gwpRel,
             gwp_absolute: gwpAbs,
             penr_relative: penrRel,
             penr_absolute: penrAbs,
-            upb_relative: ubpRel, // Note: Schema uses 'upb', input used 'ubp'
-            upb_absolute: ubpAbs, // Note: Schema uses 'upb', input used 'ubp'
-          };
+            upb_relative: ubpRel,
+            upb_absolute: ubpAbs,
+          });
         });
+
+        // Only proceed if there's data left after filtering
+        if (kafkaLcaData.length === 0) {
+          console.log(
+            `Batch ${i + 1}/${
+              batches.length
+            } is empty after filtering duplicates, skipping send.`
+          );
+          continue; // Skip sending this empty batch
+        }
 
         // Create the IfcFileData message for this batch
         const lcaMessage: IfcFileData = {
