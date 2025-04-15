@@ -632,17 +632,24 @@ wss.on("connection", (ws) => {
             }
           );
           if (qtoProject) {
-            const fileProcessingTimestamp =
-              qtoProject.metadata?.fileProcessingTimestamp ||
-              qtoProject.updated_at ||
-              qtoProject.created_at ||
-              new Date();
-            kafkaMetadata = {
-              project: qtoProject.name || `Project_${projectId}`,
-              filename: qtoProject.metadata?.filename || "unknown.ifc",
-              timestamp: new Date(fileProcessingTimestamp).toISOString(),
-              fileId: qtoProject.metadata?.file_id || projectId.toString(),
-            };
+            // Get the original timestamp ONLY from metadata.upload_timestamp
+            const originalTimestamp = qtoProject.metadata?.upload_timestamp;
+
+            if (!originalTimestamp) {
+              console.error(
+                `Original upload_timestamp missing in metadata for project ${projectId}. Cannot create accurate Kafka metadata.`
+              );
+              // Handle the error appropriately - e.g., return or throw
+              // For now, kafkaMetadata will remain null, stopping the process later
+            } else {
+              kafkaMetadata = {
+                project: qtoProject.name || `Project_${projectId}`,
+                filename: qtoProject.metadata?.filename || "unknown.ifc",
+                // Use ONLY the original timestamp
+                timestamp: new Date(originalTimestamp).toISOString(),
+                fileId: qtoProject.metadata?.file_id || projectId.toString(),
+              };
+            }
           } else {
             console.error(
               `QTO Project metadata not found for ID: ${projectId}`
@@ -902,17 +909,24 @@ wss.on("connection", (ws) => {
             }
           );
           if (qtoProject) {
-            const fileProcessingTimestamp =
-              qtoProject.metadata?.fileProcessingTimestamp ||
-              qtoProject.updated_at ||
-              qtoProject.created_at ||
-              new Date();
-            kafkaMetadata = {
-              project: qtoProject.name || `Project_${projectId}`,
-              filename: qtoProject.metadata?.filename || "unknown.ifc",
-              timestamp: new Date(fileProcessingTimestamp).toISOString(),
-              fileId: qtoProject.metadata?.file_id || projectId.toString(),
-            };
+            // Get the original timestamp ONLY from metadata.upload_timestamp
+            const originalTimestamp = qtoProject.metadata?.upload_timestamp;
+
+            if (!originalTimestamp) {
+              console.error(
+                `CRITICAL: Original upload_timestamp missing in metadata for project ${projectId} (send_lca_data). Cannot create accurate Kafka metadata.`
+              );
+              // Handle the error appropriately - e.g., return or throw
+              // For now, kafkaMetadata will remain null, stopping the process later
+            } else {
+              kafkaMetadata = {
+                project: qtoProject.name || `Project_${projectId}`,
+                filename: qtoProject.metadata?.filename || "unknown.ifc",
+                // Use ONLY the original timestamp
+                timestamp: new Date(originalTimestamp).toISOString(),
+                fileId: qtoProject.metadata?.file_id || projectId.toString(),
+              };
+            }
           } else {
             console.error(
               `Metadata not found for project ${projectId} (send_lca_data)`

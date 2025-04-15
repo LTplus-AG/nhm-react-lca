@@ -29,12 +29,18 @@ export interface LcaElementData {
 /**
  * Send LCA data to the server, which will forward it to Kafka
  * @param projectId The project ID to send data for
+ * @param projectName The project Name to send data for
  * @param elements The elements with LCA data to send
+ * @param filename The original filename
+ * @param timestamp The original timestamp from MinIO
  * @returns Promise that resolves when data is sent
  */
 export async function sendLcaData(
   projectId: string,
-  elements: LcaElementData[]
+  projectName: string,
+  elements: LcaElementData[],
+  filename: string,
+  timestamp: string
 ): Promise<boolean> {
   try {
     if (!elements || elements.length === 0) {
@@ -58,7 +64,10 @@ export async function sendLcaData(
     // Use the sendRequest function that handles all of this for us
     const response = await WebSocketService.sendRequest("send_lca_data", {
       projectId,
-      elements,
+      project: projectName,
+      filename,
+      timestamp,
+      data: elements,
     });
 
     return response.status === "success";

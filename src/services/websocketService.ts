@@ -21,6 +21,10 @@ export enum ConnectionStatus {
 export interface ProjectData {
   projectId: string;
   name: string;
+  metadata: {
+    filename: string;
+    upload_timestamp: string; // Matches the DB structure
+  };
   ifcData: {
     materials?: {
       name: string;
