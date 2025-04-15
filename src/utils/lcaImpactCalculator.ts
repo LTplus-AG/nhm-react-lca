@@ -15,19 +15,53 @@ export class LCAImpactCalculator {
     kbobMaterial: KbobMaterial | undefined,
     materialDensities?: Record<string, number>
   ): MaterialImpact {
+    // Initial check for valid inputs
     if (!material || !kbobMaterial) {
       return { gwp: 0, ubp: 0, penr: 0 };
     }
 
-    // Use custom density if available, otherwise fallback to KBOB material density
-    const density = materialDensities?.[material.id] || kbobMaterial.density;
-    const volume = typeof material.volume === "number" ? material.volume : 0;
-    const mass = volume * density;
+    // --- Safely determine and validate density ---
+    let density = materialDensities?.[material.id];
+    // If custom density is invalid or missing, try KBOB density
+    if (typeof density !== "number" || density <= 0) {
+      density = kbobMaterial.density;
+    }
+    // Final validation of density
+    if (typeof density !== "number" || density <= 0) {
+      // Optionally log a warning
+      // console.warn(`Invalid or zero density (${density}) for material ${material.id} / KBOB ${kbobMaterial.id}. Returning zero impact.`);
+      return { gwp: 0, ubp: 0, penr: 0 };
+    }
 
+    // --- Safely determine and validate volume ---
+    const volume = typeof material.volume === "number" ? material.volume : 0;
+    if (volume <= 0) {
+      // No volume means no impact
+      return { gwp: 0, ubp: 0, penr: 0 };
+    }
+
+    // --- Safely calculate and validate mass ---
+    const mass = volume * density;
+    if (isNaN(mass) || mass < 0) {
+      // Optionally log a warning
+      // console.warn(`Invalid mass (${mass}) calculated for material ${material.id} / KBOB ${kbobMaterial.id}. Returning zero impact.`);
+      return { gwp: 0, ubp: 0, penr: 0 };
+    }
+    // No need to check if mass is zero, as impacts would be zero anyway
+
+    // --- Safely get impact factors from KBOB data, defaulting to 0 ---
+    const gwpFactor =
+      typeof kbobMaterial.gwp === "number" ? kbobMaterial.gwp : 0;
+    const ubpFactor =
+      typeof kbobMaterial.ubp === "number" ? kbobMaterial.ubp : 0;
+    const penrFactor =
+      typeof kbobMaterial.penr === "number" ? kbobMaterial.penr : 0;
+
+    // --- Return calculated impacts ---
     return {
-      gwp: mass * kbobMaterial.gwp,
-      ubp: mass * kbobMaterial.ubp,
-      penr: mass * kbobMaterial.penr,
+      gwp: mass * gwpFactor,
+      ubp: mass * ubpFactor,
+      penr: mass * penrFactor,
     };
   }
 

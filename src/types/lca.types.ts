@@ -150,3 +150,27 @@ export interface ProjectData {
   materialMappings: Record<string, string>;
   ebf?: number | null; // Add this property
 }
+
+// Define LcaElement centrally
+export interface LcaElement {
+  id: string;
+  element_type: string;
+  type_name?: string;
+  quantity: number; // Represents total volume for the element
+  properties: {
+    level?: string;
+    is_structural?: boolean;
+    is_external?: boolean;
+    ebkp_code?: string;
+    ebkp_name?: string;
+    [key: string]: any; // Allow other potential properties
+  };
+  materials: {
+    id: string; // Ensure material has an ID
+    name: string;
+    volume: number;
+    unit: string;
+    kbob_id?: string; // Optional KBOB mapping ID at material instance level
+  }[];
+  impact?: MaterialImpact; // Use existing MaterialImpact type
+}
