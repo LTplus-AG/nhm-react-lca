@@ -17,5 +17,5 @@ RUN npm run build
 # Expose WebSocket port
 EXPOSE 8002
 
-# Start the server
-CMD ["npm", "start"] 
+# Start the server using the compiled JS file
+CMD ["node", "dist/server.js"] 

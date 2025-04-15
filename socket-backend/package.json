@@ -4,7 +4,7 @@
   "description": "WebSocket backend for LCA plugin",
   "main": "server.ts",
   "scripts": {
-    "start": "ts-node server.ts",
+    "start": "node dist/server.js",
     "dev": "nodemon server.ts",
     "build": "tsc"
   },
