@@ -20,35 +20,17 @@ import {
   CircularProgress,
   Grid,
 } from "@mui/material";
-import { Material, OutputFormats, KbobMaterial } from "../../types/lca.types";
+import {
+  Material,
+  OutputFormats,
+  KbobMaterial,
+  LcaElement,
+  MaterialImpact,
+} from "../../types/lca.types";
 import { BUILDING_LIFETIME_YEARS } from "../../utils/constants";
 import { LCACalculator } from "../../utils/lcaCalculator";
 import { DisplayMode } from "../../utils/lcaDisplayHelper";
 import ElementImpactTable from "./ElementImpactTable";
-import { MaterialImpact } from "../../types/lca.types";
-
-// Define LcaElement type locally or import from a shared types file
-// This needs to match the definition in LCACalculator.tsx
-interface LcaElement {
-  id: string;
-  element_type: string;
-  quantity: number;
-  properties: {
-    level?: string;
-    is_structural?: boolean;
-    is_external?: boolean;
-    ebkp_code?: string;
-    ebkp_name?: string;
-    [key: string]: any;
-  };
-  materials: {
-    name: string;
-    volume: number;
-    unit: string;
-    kbob_id?: string;
-  }[];
-  impact?: MaterialImpact; // Use MaterialImpact here
-}
 
 interface ReviewDialogProps {
   open: boolean;
@@ -63,7 +45,6 @@ interface ReviewDialogProps {
   calculator: LCACalculator;
   materialDensities: Record<string, number>;
   outputFormat: OutputFormats;
-  // Use the renamed type for the prop
   ifcElementsWithImpacts: LcaElement[];
   onSave: (data: any) => Promise<void>;
   kbobMaterials: KbobMaterial[];
@@ -382,6 +363,7 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
             outputFormat={outputFormat}
             displayMode={displayMode}
             ebfNumeric={ebfNumeric}
+            matches={matches}
           />
         )}
 

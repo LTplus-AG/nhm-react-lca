@@ -171,13 +171,6 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
   const impactLabel = getOutputFormatLabel(outputFormat);
   const impactKey = outputFormat.toLowerCase() as keyof MaterialImpact;
 
-  // Function to get the combined display string for IFC Class and Type Name
-  const getTypeDisplayString = (element: LcaElement): string => {
-    return element.type_name
-      ? `${element.element_type} / ${element.type_name}`
-      : element.element_type;
-  };
-
   // Memoized filtering, grouping, and sorting
   const processedData = useMemo(() => {
     // 1. Filter based on matched materials first
@@ -418,7 +411,7 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
 
   // Handlers for pagination changes
   const handleChangePage = (
-    event: React.MouseEvent<HTMLButtonElement> | null,
+    _event: React.MouseEvent<HTMLButtonElement> | null,
     newPage: number
   ) => {
     setPage(newPage);

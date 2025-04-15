@@ -169,23 +169,7 @@ function startPingInterval() {
   }, WS_OPTIONS.pingInterval);
 }
 
-/**
- * Stop ping interval
- */
-function stopPingInterval() {
-  if (pingInterval) {
-    clearInterval(pingInterval);
-    pingInterval = null;
-  }
-}
 
-/**
- * Set connection status and notify handlers
- */
-function setConnectionStatus(status: ConnectionStatus) {
-  connectionStatus = status;
-  notifyStatusChangeHandlers();
-}
 
 /**
  * Notify all message handlers
