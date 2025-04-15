@@ -60,6 +60,11 @@ export default defineConfig(({ mode }) => {
       target: "esnext",
       minify: mode === "production",
       cssCodeSplit: false,
+      rollupOptions: {
+        input: {
+          main: "./index.html",
+        },
+      },
     },
   };
 });
