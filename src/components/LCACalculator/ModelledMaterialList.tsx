@@ -20,7 +20,6 @@ import {
   OutputFormats,
   MaterialImpact,
 } from "../../types/lca.types";
-import { LCAImpactCalculator } from "../../utils/lcaImpactCalculator";
 
 export interface MaterialOption {
   value: string;

@@ -3,6 +3,7 @@ import {
   ImpactResults,
   OutputFormatUnits,
 } from "../types/lca.types";
+import { DisplayMode } from "./lcaDisplayHelper";
 
 export class LCAFormatter {
   private static readonly MILLION_THRESHOLD = 400000;
@@ -25,7 +26,6 @@ export class LCAFormatter {
     type: OutputFormats,
     includeUnit = false
   ): string {
-
     if (typeof value !== "number") {
       return "0";
     }
@@ -65,14 +65,11 @@ export class LCAFormatter {
     outputFormat: OutputFormats,
     showMillions: boolean = true
   ): string {
-
-
     // Get the correct property name based on the outputFormat
     const propertyName = LCAFormatter.getPropertyNameForFormat(outputFormat);
 
     // Ensure we have a numeric value, default to 0 if undefined
     const value = impactResults[propertyName] || 0;
-
 
     // Get the appropriate unit
     const unit = LCAFormatter.getUnitForFormat(outputFormat);
@@ -105,5 +102,58 @@ export class LCAFormatter {
       default:
         return "gwp";
     }
+  }
+
+  /**
+   * Formats the grand total value, applying scaling (tonnes, Mio, MWh) and display mode suffix.
+   */
+  static formatGrandTotal(
+    value: number,
+    outputFormat: OutputFormats,
+    displayMode: DisplayMode,
+    suffix: string
+  ): string {
+    let baseUnit = OutputFormatUnits[outputFormat] || "";
+    let displayValue = value;
+
+    // Apply scaling and unit changes based on thresholds
+    if (outputFormat === OutputFormats.GWP && displayValue >= 1000) {
+      displayValue /= 1000;
+      baseUnit = "t CO₂-eq";
+    } else if (
+      outputFormat === OutputFormats.UBP &&
+      displayValue >= 1_000_000
+    ) {
+      displayValue /= 1_000_000;
+      baseUnit = "Mio. UBP";
+    } else if (
+      outputFormat === OutputFormats.PENR &&
+      displayValue >= 1_000_000
+    ) {
+      displayValue /= 1_000_000;
+      baseUnit = "Mio. kWh";
+    }
+
+    const finalUnit = baseUnit + suffix;
+
+    // --- Consolidated Number Formatting Logic (from LCADisplayHelper) ---
+    let decimals = 0;
+    if (displayMode === "relative" || Math.abs(displayValue) < 1) {
+      decimals = 2;
+    } else if (Math.abs(displayValue) < 100) {
+      decimals = 1;
+    }
+
+    // Format the scaled number
+    const formattedValue = new Intl.NumberFormat("de-CH", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      useGrouping: true,
+    }).format(displayValue);
+    // --- End Consolidated Formatting ---
+
+    // Combine value and unit
+    // Add a space only if there's a unit
+    return `${formattedValue}${finalUnit ? ` ${finalUnit}` : ""}`;
   }
 }

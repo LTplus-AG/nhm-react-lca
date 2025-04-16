@@ -4,7 +4,6 @@ import {
   UnmodelledMaterial,
   KbobMaterial,
   ImpactResults,
-  OutputFormatUnits,
 } from "../types/lca.types";
 import { DisplayMode, LCADisplayHelper } from "./lcaDisplayHelper";
 import { LCAFormatter } from "./lcaFormatter";
@@ -149,15 +148,13 @@ export class LCACalculator {
     // Apply divisor based on display mode
     const value = totalValue / divisor;
 
-    // Get the base unit
-    const unit = OutputFormatUnits[outputFormat] || "";
-    const finalUnit = unit + suffix;
-
-    // Format the number based on display mode
-    const formattedValue = LCADisplayHelper.formatValue(value, displayMode);
-
-    // Combine value and unit
-    return `${formattedValue} ${finalUnit}`;
+    // <<< ADDED: Call the new formatter method >>>
+    return LCAFormatter.formatGrandTotal(
+      value,
+      outputFormat,
+      displayMode,
+      suffix
+    );
   }
 
   /**
