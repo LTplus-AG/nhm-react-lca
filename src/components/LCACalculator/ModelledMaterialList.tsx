@@ -377,6 +377,7 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
                     styles={selectStyles}
                     placeholder="KBOB-Material auswählen..."
                     isClearable
+                    menuPlacement="auto"
                   />
                 </Box>
 
