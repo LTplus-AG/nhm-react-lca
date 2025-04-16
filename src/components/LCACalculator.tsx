@@ -41,6 +41,7 @@ import DisplayModeToggle from "./LCACalculator/DisplayModeToggle";
 import ModelledMaterialList from "./LCACalculator/ModelledMaterialList";
 import ReviewDialog from "./LCACalculator/ReviewDialog";
 import ElementImpactTable from "./LCACalculator/ElementImpactTable";
+import ProjectMetadataDisplay from "./ui/ProjectMetadataDisplay";
 
 // Import WebSocket service
 import {
@@ -50,6 +51,7 @@ import {
   initWebSocket,
   onStatusChange,
   saveProjectMaterials,
+  ProjectData,
 } from "../services/websocketService";
 
 import { LCAImpactCalculator } from "../utils/lcaImpactCalculator";
@@ -89,6 +91,12 @@ interface IFCResult {
 interface ProjectOption {
   value: string;
   label: string;
+}
+
+interface ProjectMetadata {
+  filename: string;
+  upload_timestamp: string;
+  element_count?: number;
 }
 
 const Instructions = [
@@ -168,6 +176,9 @@ export default function LCACalculatorComponent(): JSX.Element {
   const [displayMode, setDisplayMode] = useState<DisplayMode>("total");
   const [ebfInput, setEbfInput] = useState<string>("");
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [projectMetadata, setProjectMetadata] =
+    useState<ProjectMetadata | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState<boolean>(false);
 
   // Memoized numeric EBF value
   const ebfNumeric = useMemo(() => {
@@ -310,6 +321,7 @@ export default function LCACalculatorComponent(): JSX.Element {
     setMatches({});
     setIfcElementsWithImpacts([]);
     setEbfInput("");
+    setProjectMetadata(null);
     setIfcResult({
       projectId: "",
       ifcData: {
@@ -320,19 +332,29 @@ export default function LCACalculatorComponent(): JSX.Element {
       materialMappings: {},
     });
     setInitialLoading(true);
+    setMetadataLoading(true);
 
     const loadProjectMaterials = async () => {
       if (!selectedProject) {
         setInitialLoading(false);
+        setMetadataLoading(false);
         return;
       }
 
       try {
-        const projectData = await getProjectMaterials(selectedProject.value);
+        const projectData: ProjectData = await getProjectMaterials(
+          selectedProject.value
+        );
 
         if (projectData && projectData.ifcData) {
           const rawElements = projectData.ifcData.elements || [];
           const conformingElementsInput = ensureElementsConform(rawElements);
+
+          setProjectMetadata({
+            filename: projectData.metadata?.filename || "Unbekannte Datei",
+            upload_timestamp: projectData.metadata?.upload_timestamp || "",
+            element_count: conformingElementsInput.length,
+          });
 
           setIfcResult({
             projectId: selectedProject.value,
@@ -389,9 +411,11 @@ export default function LCACalculatorComponent(): JSX.Element {
             setEbfInput("");
           }
         } else {
+          console.warn(`No project data found for ${selectedProject.value}`);
           setModelledMaterials([]);
           setMatches({});
           setEbfInput("");
+          setProjectMetadata(null);
           setIfcResult({
             projectId: selectedProject.value,
             ifcData: {
@@ -403,10 +427,15 @@ export default function LCACalculatorComponent(): JSX.Element {
           });
         }
       } catch (error) {
-        console.error("Error loading project materials:", error);
+        console.error(
+          `Error loading project data for ${selectedProject.value}:`,
+          error
+        );
         setModelledMaterials([]);
         setMatches({});
         setEbfInput("");
+        setIfcElementsWithImpacts([]);
+        setProjectMetadata(null);
         setIfcResult({
           projectId: selectedProject.value,
           ifcData: {
@@ -418,6 +447,7 @@ export default function LCACalculatorComponent(): JSX.Element {
         });
       } finally {
         setInitialLoading(false);
+        setMetadataLoading(false);
       }
     };
 
@@ -1494,19 +1524,15 @@ export default function LCACalculatorComponent(): JSX.Element {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  mb: 6,
+                  mb: 1,
                 }}
               >
-                <Typography
-                  variant="h2"
-                  sx={{
-                    fontWeight: 400,
-                    fontSize: "2.5rem",
-                    color: "#333",
-                  }}
-                >
-                  Ökobilanz berechnen
-                </Typography>
+                <ProjectMetadataDisplay
+                  metadata={projectMetadata}
+                  loading={metadataLoading}
+                  initialLoading={initialLoading}
+                  selectedProject={!!selectedProject}
+                />
 
                 {/* Add per year toggle in top right */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -1537,116 +1563,114 @@ export default function LCACalculatorComponent(): JSX.Element {
               </Box>
 
               {/* Existing tabs and content */}
-              <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-                <Tabs
-                  value={activeTab}
-                  onChange={handleTabChange}
+              <Tabs
+                value={activeTab}
+                onChange={handleTabChange}
+                sx={{
+                  borderBottom: 1,
+                  borderColor: "divider",
+                  mb: 2,
+                  "& .MuiTabs-indicator": {
+                    backgroundColor: "#0D0599",
+                  },
+                  "& .Mui-selected": {
+                    color: "#0D0599",
+                  },
+                }}
+              >
+                <Tab
+                  label="Material"
                   sx={{
-                    borderBottom: 1,
-                    borderColor: "divider",
-                    mb: 2,
-                    "& .MuiTabs-indicator": {
-                      backgroundColor: "#0D0599",
-                    },
-                    "& .Mui-selected": {
-                      color: "#0D0599",
-                    },
+                    textTransform: "none",
+                    fontWeight: 500,
                   }}
-                >
-                  <Tab
-                    label="Material"
-                    sx={{
-                      textTransform: "none",
-                      fontWeight: 500,
-                    }}
-                  />
-                  <Tab
-                    label="Bauteile"
-                    sx={{
-                      textTransform: "none",
-                      fontWeight: 500,
-                    }}
-                  />
-                </Tabs>
+                />
+                <Tab
+                  label="Bauteile"
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 500,
+                  }}
+                />
+              </Tabs>
 
-                {activeTab === 0 ? (
-                  <div className="modelled-materials-section">
-                    {/* Header with action buttons */}
-                    <Box
+              {activeTab === 0 ? (
+                <div className="modelled-materials-section">
+                  {/* Header with action buttons */}
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      mb: 2,
+                    }}
+                  >
+                    <Typography
+                      variant="h6"
                       sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        mb: 2,
+                        fontWeight: 600,
+                        fontSize: "1.125rem",
                       }}
                     >
-                      <Typography
-                        variant="h6"
+                      Modellierte Materialien
+                    </Typography>
+                    <Box>
+                      <Button
+                        onClick={() => {
+                          autoBulkMatch();
+                        }}
+                        variant="outlined"
+                        color="secondary"
                         sx={{
-                          fontWeight: 600,
-                          fontSize: "1.125rem",
+                          mr: 1,
+                          textTransform: "none",
+                          fontWeight: 400,
+                          borderColor: "rgba(0, 0, 0, 0.23)",
+                          color: "text.secondary",
+                          "&:hover": {
+                            borderColor: "rgba(0, 0, 0, 0.5)",
+                            backgroundColor: "rgba(0, 0, 0, 0.04)",
+                          },
                         }}
                       >
-                        Modellierte Materialien
-                      </Typography>
-                      <Box>
-                        <Button
-                          onClick={() => {
-                            autoBulkMatch();
-                          }}
-                          variant="outlined"
-                          color="secondary"
-                          sx={{
-                            mr: 1,
-                            textTransform: "none",
-                            fontWeight: 400,
-                            borderColor: "rgba(0, 0, 0, 0.23)",
-                            color: "text.secondary",
-                            "&:hover": {
-                              borderColor: "rgba(0, 0, 0, 0.5)",
-                              backgroundColor: "rgba(0, 0, 0, 0.04)",
-                            },
-                          }}
-                        >
-                          Bulk-Zuordnung
-                        </Button>
-                      </Box>
+                        Bulk-Zuordnung
+                      </Button>
                     </Box>
+                  </Box>
 
-                    {kbobLoading ? (
-                      <Box
-                        sx={{ display: "flex", justifyContent: "center", p: 3 }}
-                      >
-                        <CircularProgress size={40} />
-                      </Box>
-                    ) : modelledMaterials.length === 0 ? (
-                      <Typography>Keine Materialien verfügbar.</Typography>
-                    ) : (
-                      <ModelledMaterialList
-                        modelledMaterials={modelledMaterials}
-                        kbobMaterials={kbobMaterials}
-                        matches={matches}
-                        setMatches={setMatches}
-                        kbobMaterialOptions={kbobMaterialOptions}
-                        selectStyles={selectStyles}
-                        onDeleteMaterial={handleRemoveMaterial}
-                        materialDensities={materialDensities}
-                        handleDensityUpdate={handleDensityUpdate}
-                        outputFormat={outputFormat}
-                        aggregatedMaterialImpacts={aggregatedMaterialImpacts}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <ElementImpactTable
-                    elements={ifcElementsWithImpacts}
-                    outputFormat={outputFormat}
-                    displayMode={displayMode}
-                    ebfNumeric={ebfNumeric}
-                    matches={matches}
-                  />
-                )}
-              </Paper>
+                  {kbobLoading ? (
+                    <Box
+                      sx={{ display: "flex", justifyContent: "center", p: 3 }}
+                    >
+                      <CircularProgress size={40} />
+                    </Box>
+                  ) : modelledMaterials.length === 0 ? (
+                    <Typography>Keine Materialien verfügbar.</Typography>
+                  ) : (
+                    <ModelledMaterialList
+                      modelledMaterials={modelledMaterials}
+                      kbobMaterials={kbobMaterials}
+                      matches={matches}
+                      setMatches={setMatches}
+                      kbobMaterialOptions={kbobMaterialOptions}
+                      selectStyles={selectStyles}
+                      onDeleteMaterial={handleRemoveMaterial}
+                      materialDensities={materialDensities}
+                      handleDensityUpdate={handleDensityUpdate}
+                      outputFormat={outputFormat}
+                      aggregatedMaterialImpacts={aggregatedMaterialImpacts}
+                    />
+                  )}
+                </div>
+              ) : (
+                <ElementImpactTable
+                  elements={ifcElementsWithImpacts}
+                  outputFormat={outputFormat}
+                  displayMode={displayMode}
+                  ebfNumeric={ebfNumeric}
+                  matches={matches}
+                />
+              )}
             </>
           ) : initialLoading ? (
             <Box

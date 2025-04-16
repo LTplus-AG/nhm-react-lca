@@ -141,20 +141,51 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     try {
       setSaving(true);
 
-      // Create a simplified data structure for saving
+      // Create a map for quick KBOB lookup
+      const kbobMap = new Map(kbobMaterials.map((k) => [k.id, k]));
+
+      // Transform elements to include KBOB names directly in the material name field
+      const elementsForKafka = ifcElementsWithImpacts.map((element) => ({
+        ...element,
+        // Ensure materials array exists and is an array before mapping
+        materials: Array.isArray(element.materials)
+          ? element.materials.map((material) => {
+              // Use material.id (which should be the unique IFC material identifier) to find the match
+              const kbobId = matches[material.id];
+              const kbobMaterial = kbobId ? kbobMap.get(kbobId) : null;
+              // Use KBOB name if available, otherwise fallback to the original material name
+              const finalMaterialName = kbobMaterial
+                ? kbobMaterial.nameDE
+                : material.name;
+
+              return {
+                ...material,
+                name: finalMaterialName, // Use KBOB name here
+                kbob_id: kbobId || null, // Add KBOB ID explicitly
+                original_ifc_name: material.name, // Keep original name for reference if needed
+              };
+            })
+          : [], // Provide an empty array if element.materials is not valid
+      }));
+
+      // Create the data structure for saving, using the transformed elements
       const dataToSave = {
         ifcData: {
-          elements: ifcElementsWithImpacts,
+          elements: elementsForKafka, // Send transformed elements
+          // We might not need to send the full ifcData structure if only elements are used by backend for Kafka
+          // Adjust based on backend requirements
         },
-        // Include EBF value if available
+        materialMappings: matches, // Send original mappings as well, backend might still use them
         ebfValue: ebfNumeric !== null ? ebfNumeric.toString() : undefined,
       };
 
-      // Save the data
+      // Save the transformed data
       await onSave(dataToSave);
 
       // Execute the submit action after saving
-      onClose();
+      onClose(); // Close the dialog after successful save/submit
+      // Maybe call onSubmit() here if it does something different than just closing?
+      // onSubmit(); // <-- Uncomment if onSubmit has separate logic
     } catch (error) {
       console.error("Error saving and submitting LCA data:", error);
       alert(

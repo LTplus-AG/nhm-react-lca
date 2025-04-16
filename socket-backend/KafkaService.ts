@@ -208,6 +208,8 @@ class KafkaService {
 
           // Get the KBOB ID associated with this specific material instance
           const matKbobValue = materialInstance.kbob_id || "UNKNOWN_KBOB";
+          const matKbobNameValue =
+            materialInstance.kbob_name || "UNKNOWN_KBOB_NAME";
 
           // Determine ID and Sequence, including fallbacks
           const id =
@@ -227,17 +229,10 @@ class KafkaService {
           // Add key to set and create LcaData object
           sentKeys.add(uniqueKey);
 
-          // Log the mapping details (only for items being sent)
-          console.log(
-            `[Kafka Map - Material] ID: ${id}, KBOB: ${matKbobValue}, GWP_Abs: ${gwpAbs.toFixed(
-              2
-            )}, Name: ${materialInstance.material_name}, Seq: ${sequence}`
-          );
-
           kafkaLcaData.push({
             id: id,
             sequence: sequence,
-            mat_kbob: matKbobValue,
+            mat_kbob: matKbobNameValue,
             gwp_relative: gwpRel,
             gwp_absolute: gwpAbs,
             penr_relative: penrRel,

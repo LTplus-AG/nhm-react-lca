@@ -33,12 +33,6 @@ function parseDensity(densityStr: string | number | null | undefined): number {
   return isNaN(numericValue) ? 0 : numericValue;
 }
 
-// Helper to get UUID from the complex object structure
-function getUUID(uuidField: string | { $binary: { base64: string; subType: string; } }): string {
-  if (typeof uuidField === 'string') return uuidField;
-  return uuidField.$binary.base64;
-}
-
 // Convert raw material to KbobMaterial format
 function convertToKbobMaterial(raw: RawKbobMaterial): KbobMaterial {
   return {

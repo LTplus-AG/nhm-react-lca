@@ -129,6 +129,7 @@ interface QtoProject {
   metadata?: {
     file_id?: string;
     filename?: string;
+    upload_timestamp?: string;
   };
   [key: string]: any;
 }
@@ -374,6 +375,10 @@ wss.on("connection", (ws) => {
 
           let projectName = "New Project";
           let projectElements: QtoElement[] = [];
+          let projectMetadata: {
+            filename: string;
+            upload_timestamp: string;
+          } | null = null;
 
           try {
             // Try main connection first
@@ -409,6 +414,10 @@ wss.on("connection", (ws) => {
 
             if (project) {
               projectName = project.name;
+              projectMetadata = {
+                filename: project.metadata?.filename || "Unbekannte Datei",
+                upload_timestamp: project.metadata?.upload_timestamp || "",
+              };
               console.log(`Found project name in QTO database: ${projectName}`);
 
               // Get all elements for this project - the project_id might be stored as an ObjectId or as a string
@@ -560,6 +569,10 @@ wss.on("connection", (ws) => {
                 type: "project_materials",
                 projectId,
                 name: projectName,
+                metadata: projectMetadata || {
+                  filename: "Unbekannte Datei",
+                  upload_timestamp: "",
+                },
                 ifcData: {
                   materials: materials, // Send aggregated materials for Material tab
                   elements: projectElements, // Send raw elements for Bauteile tab
@@ -577,6 +590,10 @@ wss.on("connection", (ws) => {
                 type: "project_materials",
                 projectId,
                 name: projectName,
+                metadata: projectMetadata || {
+                  filename: "Unbekannte Datei",
+                  upload_timestamp: "",
+                },
                 ifcData: { materials: [], elements: [] }, // Send empty arrays
                 materialMappings: {},
                 ebf: null,
@@ -752,7 +769,7 @@ wss.on("connection", (ws) => {
                 const kbobMat = kbobMap.get(mappedKbobId);
                 if (kbobMat) {
                   const volume = parseFloat(material.volume?.toString() || "0");
-                  // TODO: Incorporate custom density if available (e.g., from frontend/saved data)
+                  // TODO: Incorporate custom density if available
                   const density = kbobMat.density || 0;
 
                   if (
@@ -768,17 +785,21 @@ wss.on("connection", (ws) => {
                       penr: mass * (kbobMat.penr || 0),
                     };
 
+                    // Get the KBOB name
+                    const kbobName = kbobMat.nameDE || "Unknown KBOB Name";
+
                     // Add instance to list for Kafka
                     allMaterialInstances.push({
                       element_global_id:
                         qtoElement.global_id ||
                         qtoElement.ifc_id ||
                         qtoElement._id.toString(),
-                      material_name: material.name, // Original name might be useful downstream
+                      material_name: material.name,
                       kbob_id: mappedKbobId,
+                      kbob_name: kbobName,
                       volume: volume,
                       impact: instanceImpact,
-                      sequence: elementSequence++, // Sequence of material within this element
+                      sequence: elementSequence++,
                     });
 
                     // Accumulate totals
@@ -794,6 +815,19 @@ wss.on("connection", (ws) => {
                   console.log(
                     `[Elem: ${qtoElement._id}, Mat: ${material.name}] KBOB data not found in kbobMap for mapped ID: ${mappedKbobId}`
                   );
+                  // Add instance with UNKNOWN KBOB and name
+                  allMaterialInstances.push({
+                    element_global_id:
+                      qtoElement.global_id ||
+                      qtoElement.ifc_id ||
+                      qtoElement._id.toString(),
+                    material_name: material.name,
+                    kbob_id: "UNKNOWN_KBOB",
+                    kbob_name: "UNKNOWN_KBOB_NAME", // Add unknown name
+                    volume: parseFloat(material.volume?.toString() || "0"),
+                    impact: { gwp: 0, ubp: 0, penr: 0 },
+                    sequence: elementSequence++,
+                  });
                 }
               } else {
                 console.log(
@@ -807,6 +841,7 @@ wss.on("connection", (ws) => {
                     qtoElement._id.toString(),
                   material_name: material.name,
                   kbob_id: "UNKNOWN_KBOB",
+                  kbob_name: "UNKNOWN_KBOB_NAME", // Add unknown name
                   volume: parseFloat(material.volume?.toString() || "0"),
                   impact: { gwp: 0, ubp: 0, penr: 0 },
                   sequence: elementSequence++,
