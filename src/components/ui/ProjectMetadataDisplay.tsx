@@ -61,7 +61,10 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
   const formatTime = (timestamp: string): string => {
     if (!timestamp) return "N/A";
     try {
-      return new Date(timestamp).toLocaleTimeString("de-DE", {
+      const utcTimestamp = timestamp.endsWith("Z")
+        ? timestamp
+        : timestamp + "Z";
+      return new Date(utcTimestamp).toLocaleTimeString("de-DE", {
         timeZone: "Europe/Berlin",
         hour: "2-digit",
         minute: "2-digit",
@@ -73,7 +76,11 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
   };
 
   const formattedTimestamp = metadata.upload_timestamp
-    ? new Date(metadata.upload_timestamp).toLocaleString("de-DE", {
+    ? new Date(
+        metadata.upload_timestamp.endsWith("Z")
+          ? metadata.upload_timestamp
+          : metadata.upload_timestamp + "Z"
+      ).toLocaleString("de-DE", {
         timeZone: "Europe/Berlin", // Adjust timezone as needed
         dateStyle: "short",
         timeStyle: "medium",
