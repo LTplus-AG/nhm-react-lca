@@ -26,18 +26,11 @@ Weboberfläche für NHMzh Module Kostenberechnung & LCA. Diese Benutzeroberfläc
 
 - Material-Management und LCA-Berechnungen
 - KBOB-Materialdatenbank-Integration über [lcadata.ch](https://www.lcadata.ch/)
-- Interaktive Visualisierung der LCA-Ergebnisse
 - Umfassende Materialdatenbank mit Umweltauswirkungsdaten
-- Export-Funktionen für Excel, CSV und JSON
 
 ## Kontext
 
 Diese UI arbeitet in Verbindung mit dem [NHMzh Modules](https://github.com/LTplus-AG/LCA-Cost-NHMzh) Backend-System, das folgende Funktionen bietet:
-
-- LCA-Berechnungen
-- Kostenberechnungen
-- Datenverarbeitung
-- Ergebnisgenerierung
 
 ## Erste Schritte
 
@@ -92,8 +85,6 @@ Die Anwendung integriert sich mit:
   - Umfangreiche Datenbank von Baumaterialien
   - Umweltauswirkungsdaten aus KBOB
   - Herstellerspezifische Daten
-  - Historische Datenvergleiche
-- NHMzh Modules Backend für LCA- und Kostenberechnungen
 
 ## Wichtiger Hinweis
 
