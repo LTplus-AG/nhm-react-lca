@@ -28,4 +28,4 @@ jobs:
           context: .
           file: socket-backend/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/plugin-lca:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/nhmzh-lca-websocket:latest
