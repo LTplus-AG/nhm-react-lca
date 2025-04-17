@@ -25,7 +25,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
-          context: .
-          file: socket-backend/Dockerfile.backend
+          context: ./socket-backend
+          file: ./socket-backend/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/nhmzh-lca-websocket:latest
