@@ -33,8 +33,8 @@ export interface LcaData {
   gwp_absolute: number;
   penr_relative: number;
   penr_absolute: number;
-  upb_relative: number;
-  upb_absolute: number;
+  ubp_relative: number;
+  ubp_absolute: number;
 }
 
 // Interface for the metadata object expected by Kafka sending functions
@@ -237,8 +237,8 @@ class KafkaService {
             gwp_absolute: gwpAbs,
             penr_relative: penrRel,
             penr_absolute: penrAbs,
-            upb_relative: ubpRel,
-            upb_absolute: ubpAbs,
+            ubp_relative: ubpRel,
+            ubp_absolute: ubpAbs,
           });
         });
 
