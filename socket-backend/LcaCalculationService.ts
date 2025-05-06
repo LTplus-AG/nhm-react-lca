@@ -20,7 +20,7 @@ const ebkpAmortizationPeriods = new Map<string, number>([
 
 // Helper to normalize material names
 function normalizeMaterialName(name: string): string {
-  return name.replace(/\\s*\\(\\d+\\)\\s*$/, "");
+  return name.replace(/\s*\(\d+\)\s*$/, "");
 }
 
 export class LcaCalculationService {
