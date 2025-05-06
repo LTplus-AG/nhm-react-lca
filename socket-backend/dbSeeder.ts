@@ -95,7 +95,7 @@ export async function seedKbobData(lcaDb: Db): Promise<void> {
               id: kbobId,
               nameDE: item.Name,
               gwp: parseFloat(item.GWP?.toString() || "0"),
-              ubp: parseFloat(item.UBP?.toString().replace(/\./g, "") || "0"),
+              ubp: parseFloat(item.UBP?.toString() || "0"),
               penr: parseFloat(item.PENRE?.toString() || "0"),
               density: density,
               densityRange: densityRange,

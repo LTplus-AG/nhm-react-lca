@@ -1,14 +1,7 @@
-import rawMaterials from '../data/indicatorsKBOB_v6.json';
+// import rawMaterials from '../data/indicatorsKBOB_v6.json';
 
-interface RawKbobMaterial {
-  KBOB_ID: string | number;
-  Name: string;
-  GWP: number;
-  UBP: number;
-  PENRE: number;
-  "kg/unit": string | number | null;
-  uuid: string | { $binary: { base64: string; subType: string; } };
-}
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+
 
 export interface KbobMaterial {
   id: string;
@@ -25,60 +18,62 @@ export interface KbobMaterial {
   biogenicCarbon: number;
 }
 
-// Helper function to parse density
-function parseDensity(densityStr: string | number | null | undefined): number {
-  if (densityStr === null || densityStr === undefined || densityStr === "-") return 0;
-  if (typeof densityStr === "number") return densityStr;
-  const numericValue = parseFloat(densityStr.toString().replace(/[^\d.]/g, ""));
-  return isNaN(numericValue) ? 0 : numericValue;
-}
 
-// Convert raw material to KbobMaterial format
-function convertToKbobMaterial(raw: RawKbobMaterial): KbobMaterial {
-  return {
-    id: raw.KBOB_ID.toString(),
-    nameDE: raw.Name,
-    density: parseDensity(raw["kg/unit"]),
-    unit: typeof raw["kg/unit"] === "number" ? "kg" : (raw["kg/unit"] || "kg"),
-    gwp: raw.GWP || 0,
-    gwpProduction: raw.GWP || 0, // Assuming GWP is production value
-    gwpDisposal: 0,
-    ubp: raw.UBP || 0,
-    ubpProduction: raw.UBP || 0, // Assuming UBP is production value
-    ubpDisposal: 0,
-    penr: raw.PENRE || 0,
-    biogenicCarbon: 0
-  };
-}
 
 // Simulates the original fetchKBOBMaterials function
+// Modify fetchKBOBMaterials to use the new API endpoint
 export async function fetchKBOBMaterials(): Promise<KbobMaterial[]> {
-  // Filter out any items that don't have required fields
-  const validMaterials = (rawMaterials as RawKbobMaterial[])
-    .filter(item => item.KBOB_ID && item.Name)
-    .map(convertToKbobMaterial);
-  
-  return validMaterials;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/kbob/materials`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const materials = await response.json();
+    // The backend now returns data already in the desired KbobMaterial format (or close)
+    // Perform any necessary minor transformations if needed, otherwise return directly.
+    // Assuming the backend returns objects matching the MaterialLibraryItem structure
+    // from dbSeeder, which is very close to KbobMaterial.
+    // We might need to adjust field names slightly if they differ.
+    // For now, let's assume direct compatibility or minimal adjustment needed.
+    return materials as KbobMaterial[]; // Cast or map if necessary
+  } catch (error) {
+    console.error("Failed to fetch KBOB materials from API:", error);
+    // Return empty array or re-throw error based on desired handling
+    return [];
+  }
 }
 
 // Simulates fetching a single material by ID
-export async function fetchKBOBMaterialById(id: string): Promise<KbobMaterial | null> {
-  const material = (rawMaterials as RawKbobMaterial[])
-    .find(item => item.KBOB_ID.toString() === id);
-  
-  return material ? convertToKbobMaterial(material) : null;
+// This would ideally also use an API endpoint like /api/kbob/materials/:id
+// For now, we'll filter the results from the main fetch
+export async function fetchKBOBMaterialById(
+  id: string
+): Promise<KbobMaterial | null> {
+  try {
+    const allMaterials = await fetchKBOBMaterials(); // Reuse the main fetch
+    return allMaterials.find((m) => m.id === id) || null;
+  } catch (error) {
+    console.error("Failed to fetch KBOB material by ID:", error);
+    return null;
+  }
 }
 
 // Simulates search functionality
-export async function searchKBOBMaterials(searchTerm: string): Promise<KbobMaterial[]> {
-  const normalizedSearch = searchTerm.toLowerCase();
-  
-  const filteredMaterials = (rawMaterials as RawKbobMaterial[])
-    .filter(item => 
-      item.Name.toLowerCase().includes(normalizedSearch) ||
-      item.KBOB_ID.toString().includes(normalizedSearch)
-    )
-    .map(convertToKbobMaterial);
-
-  return filteredMaterials;
+// This could also be a backend endpoint /api/kbob/materials?search=term
+// For now, we'll filter the results from the main fetch
+export async function searchKBOBMaterials(
+  searchTerm: string
+): Promise<KbobMaterial[]> {
+  try {
+    const allMaterials = await fetchKBOBMaterials();
+    const normalizedSearch = searchTerm.toLowerCase();
+    return allMaterials.filter(
+      (item) =>
+        item.nameDE.toLowerCase().includes(normalizedSearch) ||
+        item.id.toString().includes(normalizedSearch)
+    );
+  } catch (error) {
+    console.error("Failed to search KBOB materials:", error);
+    return [];
+  }
 }
