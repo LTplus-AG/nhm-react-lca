@@ -46,7 +46,7 @@ export default defineConfig(({ mode }) => {
           secure: false,
         },
         "/api": {
-          target: env.VITE_API_URL || "http://localhost:3000",
+          target: env.VITE_WEBSOCKET_URL || "http://localhost:8002",
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path,

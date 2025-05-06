@@ -12,6 +12,10 @@ import { config } from "./config"; // Import shared config
 import { LcaCalculationService } from "./LcaCalculationService";
 import { KbobMaterial, MaterialInstanceResult } from "./types";
 
+// Add variables to hold the DB connection (declared after imports)
+let lcaDbInstance: Db | null = null;
+let mongoClientInstance: MongoClient | null = null;
+
 dotenv.config();
 
 // REMOVED local config definition
@@ -47,6 +51,29 @@ app.use(
 );
 
 app.use(express.json());
+
+// Add API endpoint to fetch KBOB materials
+app.get("/api/kbob/materials", async (req, res) => {
+  // Use the globally established DB connection
+  if (!lcaDbInstance) {
+    console.error("API Error: MongoDB connection not available.");
+    return res.status(503).json({ message: "Database connection unavailable" });
+  }
+
+  try {
+    // Assert type here as Db, since it should be assigned at startup
+    const db = lcaDbInstance as Db;
+    const materialLibraryCollection = db.collection(
+      config.mongodb.collections.materialLibrary
+    );
+    const materials = await materialLibraryCollection.find({}).toArray();
+    res.status(200).json(materials);
+  } catch (error) {
+    console.error("Error fetching KBOB materials from DB:", error);
+    res.status(500).json({ message: "Failed to fetch KBOB materials" });
+  }
+  // Do NOT close the client here, it's managed globally
+});
 
 // Add health check endpoint
 app.get("/health", (req, res) => {
@@ -955,65 +982,30 @@ const port = config.websocket.port;
 server.listen(port, async () => {
   console.log(`Server running on port ${port}`);
 
+  // --- Connect to Database ONCE on startup ---
+  try {
+    console.log("Establishing MongoDB connection for the server...");
+    const { lcaDb, client } = await connectToDatabases();
+    lcaDbInstance = lcaDb; // Store the Db instance
+    mongoClientInstance = client; // Store the client instance
+    console.log("MongoDB connection established and ready.");
+  } catch (dbError) {
+    console.error("FATAL: Failed to connect to MongoDB on startup.", dbError);
+    // Optionally exit if DB connection is critical for startup
+    // process.exit(1);
+  }
+  // --- End Database Connection ---
+
   try {
     // Initialize Kafka
-    console.log("Initializing Kafka connection...");
     const kafkaInitialized = await kafkaService.initialize();
-
     if (kafkaInitialized) {
-      console.log("Kafka initialized successfully");
-
-      // Set up Kafka consumer to listen for QTO element updates
-      const consumerCreated = await kafkaService.createConsumer(
-        async (messageData) => {
-          try {
-            // Check if this is a PROJECT_UPDATED notification
-            if (messageData.eventType === "PROJECT_UPDATED") {
-              const { projectId, projectName, filename, timestamp, fileId } =
-                messageData.payload;
-              console.log(
-                `Received PROJECT_UPDATED notification for project: ${projectName} (ID: ${projectId})`
-              );
-
-              // Store the metadata received from the QTO producer
-              if (projectId) {
-                projectMetadataStore[projectId] = {
-                  project: projectName,
-                  filename: filename || "unknown.ifc", // Use filename from payload
-                  timestamp: timestamp, // Use original timestamp from payload
-                  fileId: fileId || projectId, // Use fileId from payload
-                };
-                console.log(
-                  `Stored metadata for projectId ${projectId}:`,
-                  projectMetadataStore[projectId]
-                );
-              }
-
-              // TODO: Potentially trigger LCA calculation based on this update notification
-              // This might involve fetching elements for projectId from the DB
-              // and then proceeding with LCA calculation + sending results.
-            } else {
-              // Handle legacy element messages if necessary, or log/ignore
-              console.log(
-                "Received non-PROJECT_UPDATED message, skipping detailed processing in LCA for now."
-              );
-            }
-          } catch (error) {
-            console.error("Error processing Kafka message in LCA:", error);
-          }
-        }
-      );
-
-      if (consumerCreated) {
-        console.log("Kafka consumer created and running");
-      } else {
-        console.error("Failed to create Kafka consumer");
-      }
+      console.log("Kafka service initialized successfully");
     } else {
-      console.error("Failed to initialize Kafka");
+      console.error("Failed to initialize Kafka service");
     }
   } catch (error) {
-    console.error("Error during Kafka setup:", error);
+    console.error("Failed to initialize Kafka:", error);
   }
 });
 
@@ -1024,9 +1016,16 @@ process.on("SIGINT", async () => {
   // Disconnect Kafka
   await kafkaService.disconnect();
 
+  // Close MongoDB connection
+  if (mongoClientInstance) {
+    console.log("Closing MongoDB connection...");
+    await mongoClientInstance.close();
+    console.log("MongoDB connection closed.");
+  }
+
   // Close the server
   server.close(() => {
-    console.log("Server shut down");
+    console.log("Server closed");
     process.exit(0);
   });
 });
