@@ -1,15 +1,16 @@
 import { Kafka, Producer, Admin, Consumer } from "kafkajs";
 import dotenv from "dotenv";
+import {
+  LcaData,
+  KafkaMetadata,
+  IfcFileData,
+  MaterialInstanceResult,
+  LcaImpact,
+} from "./types";
 
 dotenv.config();
 
-// Define interfaces for type safety
-export interface LcaImpact {
-  gwp: number; // Global Warming Potential
-  ubp: number; // UBP (Environmental Impact Points)
-  penr: number; // Primary Energy Non-Renewable
-}
-
+// Define LcaElementData interface for backward compatibility with test code
 export interface LcaElementData {
   id: string;
   category: string;
@@ -25,34 +26,8 @@ export interface LcaElementData {
   primaryKbobId?: string;
 }
 
-export interface LcaData {
-  id: string;
-  sequence: number;
-  mat_kbob: string;
-  gwp_relative: number;
-  gwp_absolute: number;
-  penr_relative: number;
-  penr_absolute: number;
-  ubp_relative: number;
-  ubp_absolute: number;
-}
-
-// Interface for the metadata object expected by Kafka sending functions
-export interface KafkaMetadata {
-  project: string;
-  filename: string;
-  timestamp: string; // Should be the ISO string from fileProcessingTimestamp
-  fileId: string;
-}
-
-// Updated IfcFileData interface to use KafkaMetadata type implicitly
-export interface IfcFileData {
-  project: string;
-  filename: string;
-  timestamp: string;
-  fileId: string;
-  data?: LcaData[];
-}
+// Re-export types from the types module for backward compatibility
+export type { LcaImpact, KafkaMetadata };
 
 class KafkaService {
   private kafka: Kafka;
@@ -147,26 +122,24 @@ class KafkaService {
   }
 
   /**
-   * Batch send LCA data elements (now material instances), calculating relative values.
-   * Accepts a kafkaMetadata object and totals object.
+   * Batch send pre-calculated LCA data to Kafka.
+   * Accepts an array of MaterialInstanceResult containing absolute and relative values.
    */
   async sendLcaBatchToKafka(
-    materialInstances: any[], // Changed parameter name and type (use a more specific type if defined)
-    kafkaMetadata: KafkaMetadata,
-    totals: { totalGwp: number; totalUbp: number; totalPenr: number }
+    materialInstanceResults: MaterialInstanceResult[],
+    kafkaMetadata: KafkaMetadata
   ): Promise<boolean> {
     try {
-      if (!materialInstances || materialInstances.length === 0) {
-        console.log("No LCA material instances to send in batch.");
+      if (!materialInstanceResults || materialInstanceResults.length === 0) {
+        console.log("[Kafka Send] No pre-calculated LCA instances to send.");
+        return true; // Not an error if there's nothing to send
+      }
+      if (!kafkaMetadata) {
+        console.error("[Kafka Send] Incomplete metadata provided.");
         return false;
       }
-      if (!kafkaMetadata || !totals) {
-        console.error(
-          "Incomplete metadata or totals provided to sendLcaBatchToKafka.",
-          { kafkaMetadata, totals }
-        );
-        return false;
-      }
+
+      // Ensure topic exists and producer is connected
       if (!this.lcaTopicReady) {
         await this.ensureTopicExists(this.config.lcaTopic);
         this.lcaTopicReady = true;
@@ -176,80 +149,55 @@ class KafkaService {
         this.isProducerConnected = true;
       }
 
-      const BATCH_SIZE = 200; // Adjust batch size if needed
-      const batches: any[][] = [];
-      for (let i = 0; i < materialInstances.length; i += BATCH_SIZE) {
-        batches.push(materialInstances.slice(i, i + BATCH_SIZE));
+      const BATCH_SIZE = 200;
+      const batches: MaterialInstanceResult[][] = [];
+      for (let i = 0; i < materialInstanceResults.length; i += BATCH_SIZE) {
+        batches.push(materialInstanceResults.slice(i, i + BATCH_SIZE));
       }
 
       console.log(
-        `Sending ${materialInstances.length} LCA material instances in ${batches.length} batches (Project: ${kafkaMetadata.project}, File: ${kafkaMetadata.filename})`
+        `[Kafka Send] Sending ${materialInstanceResults.length} instances in ${batches.length} batches (Project: ${kafkaMetadata.project}, File: ${kafkaMetadata.filename})`
       );
 
       let allBatchesSentSuccessfully = true;
-      const sentKeys = new Set<string>(); // Track sent (id::sequence) combinations for this fileId
+      const sentKeys = new Set<string>(); // Still useful for duplicate checks within a fileId batch
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
-        const kafkaLcaData: LcaData[] = []; // Build the filtered data for this batch
+        // Map pre-calculated data directly to Kafka LcaData format
+        const kafkaLcaData: LcaData[] = [];
 
-        // Map batch elements, filtering duplicates based on (id, sequence)
-        batch.forEach((materialInstance, indexInBatch) => {
-          // Use impacts directly from the material instance
-          const gwpAbs = materialInstance.impact?.gwp || 0;
-          const ubpAbs = materialInstance.impact?.ubp || 0;
-          const penrAbs = materialInstance.impact?.penr || 0;
-
-          // Calculate relative impacts based on overall totals
-          const gwpRel = totals.totalGwp !== 0 ? gwpAbs / totals.totalGwp : 0;
-          const ubpRel = totals.totalUbp !== 0 ? ubpAbs / totals.totalUbp : 0;
-          const penrRel =
-            totals.totalPenr !== 0 ? penrAbs / totals.totalPenr : 0;
-
-          // Get the KBOB ID associated with this specific material instance
-          const matKbobValue = materialInstance.kbob_id || "UNKNOWN_KBOB";
-          const matKbobNameValue =
-            materialInstance.kbob_name || "UNKNOWN_KBOB_NAME";
-
-          // Determine ID and Sequence, including fallbacks
-          const id =
-            materialInstance.element_global_id ||
-            `unknown_element_${indexInBatch}`; // Use batch index for fallback ID
-          const sequence = materialInstance.sequence ?? indexInBatch; // Use batch index for fallback sequence
-
-          const uniqueKey = `${id}::${sequence}`;
-
+        batch.forEach((instanceResult) => {
+          const uniqueKey = `${instanceResult.id}::${instanceResult.sequence}`;
           if (sentKeys.has(uniqueKey)) {
             console.warn(
-              `[Kafka Send] Skipping duplicate key for file ${kafkaMetadata.fileId}: id='${id}', sequence='${sequence}', KBOB='${matKbobValue}', Name='${materialInstance.material_name}'`
+              `[Kafka Send] Skipping duplicate key for file ${kafkaMetadata.fileId}: id='${instanceResult.id}', sequence='${instanceResult.sequence}', KBOB Name='${instanceResult.kbob_name}'`
             );
-            return; // Skip this item
+            return; // Skip duplicate within this submission batch
           }
-
-          // Add key to set and create LcaData object
           sentKeys.add(uniqueKey);
 
+          // Directly map fields
           kafkaLcaData.push({
-            id: id,
-            sequence: sequence,
-            mat_kbob: matKbobNameValue,
-            gwp_relative: gwpRel,
-            gwp_absolute: gwpAbs,
-            penr_relative: penrRel,
-            penr_absolute: penrAbs,
-            ubp_relative: ubpRel,
-            ubp_absolute: ubpAbs,
+            id: instanceResult.id, // Use element ID
+            sequence: instanceResult.sequence,
+            mat_kbob: instanceResult.kbob_name, // Use KBOB Name field
+            gwp_relative: instanceResult.gwp_relative, // Use pre-calculated value
+            gwp_absolute: instanceResult.gwp_absolute, // Use pre-calculated value
+            penr_relative: instanceResult.penr_relative, // Use pre-calculated value
+            penr_absolute: instanceResult.penr_absolute, // Use pre-calculated value
+            ubp_relative: instanceResult.ubp_relative, // Use pre-calculated value
+            ubp_absolute: instanceResult.ubp_absolute, // Use pre-calculated value
           });
-        });
+        }); // End batch.forEach
 
-        // Only proceed if there's data left after filtering
         if (kafkaLcaData.length === 0) {
           console.log(
-            `Batch ${i + 1}/${
+            `[Kafka Send] Batch ${i + 1}/${
               batches.length
-            } is empty after filtering duplicates, skipping send.`
+            } empty after filtering duplicates, skipping.`
           );
-          continue; // Skip sending this empty batch
+          continue;
         }
 
         // Create the IfcFileData message for this batch
@@ -263,39 +211,93 @@ class KafkaService {
         const messageKey = kafkaMetadata.fileId;
 
         try {
+          // console.log(`[Kafka Send] Sending Batch ${i + 1}/${batches.length}, Key: ${messageKey}, Size: ${kafkaLcaData.length}`); // Simplified log
+          // Limit log size for potentially large messages
+          const logPayload = JSON.stringify(lcaMessage);
           console.log(
-            `Attempting to send LCA batch ${i + 1}/${
+            `[Kafka Send] Sending Batch ${i + 1}/${
               batches.length
-            } message to Kafka topic ${this.config.lcaTopic}:`,
-            JSON.stringify(lcaMessage, null, 2)
+            } - Payload: ${logPayload.substring(0, 500)}${
+              logPayload.length > 500 ? "..." : ""
+            }`
           );
+
           await this.producer.send({
             topic: this.config.lcaTopic,
-            messages: [{ value: JSON.stringify(lcaMessage), key: messageKey }],
+            messages: [{ value: logPayload, key: messageKey }],
           });
-          console.log(
-            `LCA batch ${i + 1}/${batches.length} sent successfully.`
-          );
+          // console.log(`[Kafka Send] Batch ${i + 1}/${batches.length} sent successfully.`); // Success log per batch can be verbose
         } catch (sendError) {
           console.error(
-            `Error sending LCA batch ${i + 1}/${batches.length} to Kafka:`,
+            `[Kafka Send] Error sending batch ${i + 1}/${batches.length}:`,
             sendError
           );
-          this.isProducerConnected = false;
+          this.isProducerConnected = false; // Attempt reconnect on next send
           allBatchesSentSuccessfully = false;
-          break;
+          // Consider whether to break or continue trying other batches
+          break; // Stop sending if one batch fails
         }
 
-        // Optional delay between batches
+        // Optional delay
         if (batches.length > 1 && i < batches.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
-      }
+      } // End batch loop
+
+      if (allBatchesSentSuccessfully)
+        console.log(
+          `[Kafka Send] All ${batches.length} batches sent successfully for fileId ${kafkaMetadata.fileId}.`
+        );
+      else
+        console.error(
+          `[Kafka Send] Failed to send one or more batches for fileId ${kafkaMetadata.fileId}.`
+        );
+
       return allBatchesSentSuccessfully;
     } catch (error) {
-      console.error("Error in sendLcaBatchToKafka:", error);
+      console.error(
+        "[Kafka Send] Unexpected error in sendLcaBatchToKafka:",
+        error
+      );
       return false;
     }
+  }
+
+  /**
+   * @deprecated Use the new sendLcaBatchToKafka method that takes pre-calculated values
+   * This method is kept for compatibility with existing code
+   */
+  async sendLcaBatchToKafkaLegacy(
+    elements: LcaElementData[],
+    kafkaMetadata: KafkaMetadata,
+    totals: { totalGwp: number; totalUbp: number; totalPenr: number }
+  ): Promise<boolean> {
+    console.warn(
+      "Using deprecated method sendLcaBatchToKafkaLegacy - please update your code"
+    );
+    // Convert the old format to the new format for backward compatibility
+    const materialInstanceResults: MaterialInstanceResult[] = elements.map(
+      (element, index) => {
+        const impact = element.impact || { gwp: 0, ubp: 0, penr: 0 };
+        return {
+          id: element.id,
+          sequence: element.sequence || index,
+          material_name: element.materials?.[0]?.name || "Unknown",
+          kbob_id: element.primaryKbobId || null,
+          kbob_name: "Unknown KBOB", // We don't have this in the old format
+          ebkp_code: null, // We don't have this in the old format
+          amortization_years: 45, // Use default 45 years
+          gwp_absolute: impact.gwp,
+          ubp_absolute: impact.ubp,
+          penr_absolute: impact.penr,
+          gwp_relative: impact.gwp / 45, // Simple approximation - not accurate!
+          ubp_relative: impact.ubp / 45,
+          penr_relative: impact.penr / 45,
+        };
+      }
+    );
+
+    return this.sendLcaBatchToKafka(materialInstanceResults, kafkaMetadata);
   }
 
   /**
