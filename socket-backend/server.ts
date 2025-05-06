@@ -9,6 +9,8 @@ import fs from "fs";
 import path from "path";
 import { seedKbobData } from "./dbSeeder";
 import { config } from "./config"; // Import shared config
+import { LcaCalculationService } from "./LcaCalculationService";
+import { KbobMaterial, MaterialInstanceResult } from "./types";
 
 dotenv.config();
 
@@ -183,7 +185,7 @@ wss.on("connection", (ws) => {
     let dbClient: MongoClient | null = null;
     try {
       const data = JSON.parse(message.toString());
-      console.log("Received message:", data);
+      console.log("Received message type:", data.type); // Log only type initially
 
       // Handle ping messages
       if (data.type === "ping") {
@@ -241,9 +243,9 @@ wss.on("connection", (ws) => {
             fileId: `test_${Date.now()}`, // Corrected Date usage
           };
 
-          // Corrected: Send test message using the service and metadata object
+          // Use deprecated method for backwards compatibility with test
           const testTotals = { totalGwp: 0, totalUbp: 0, totalPenr: 0 };
-          const result = await kafkaService.sendLcaBatchToKafka(
+          const result = await kafkaService.sendLcaBatchToKafkaLegacy(
             [testElement],
             testKafkaMetadata,
             testTotals
@@ -619,7 +621,8 @@ wss.on("connection", (ws) => {
 
       // Handle saving project materials
       if (data.type === "save_project_materials") {
-        const { projectId, ifcData, materialMappings, ebfValue } = data;
+        console.log("Processing save_project_materials...");
+        const { projectId, materialMappings, ebfValue } = data; // Removed ifcData if not directly used
         if (!projectId) {
           ws.send(
             JSON.stringify({
@@ -634,7 +637,7 @@ wss.on("connection", (ws) => {
         const { lcaDb, qtoDb, client } = await connectToDatabases();
         dbClient = client;
 
-        // Fetch QTO Project Metadata
+        // 1. Fetch QTO Project Metadata (for Kafka)
         let kafkaMetadata: KafkaMetadata | null = null;
         try {
           const qtoProject = await qtoDb.collection("projects").findOne(
@@ -675,7 +678,6 @@ wss.on("connection", (ws) => {
         } catch (error) {
           console.error(`Error fetching QTO project metadata: ${error}`);
         }
-
         if (!kafkaMetadata) {
           ws.send(
             JSON.stringify({
@@ -684,225 +686,90 @@ wss.on("connection", (ws) => {
               messageId: data.messageId,
             })
           );
-          return;
+          return; // Exit if metadata is missing
         }
 
-        // Save LCA Results
+        // 2. Fetch necessary data for LCA Calculation
+        const [qtoElements, kbobMaterials] = await Promise.all([
+          qtoDb
+            .collection<QtoElement>("elements") // Use interface
+            .find({ project_id: new ObjectId(projectId), status: "active" })
+            .toArray(),
+          lcaDb.collection<KbobMaterial>("materialLibrary").find({}).toArray(), // Use interface
+        ]);
+        console.log(
+          `Fetched ${qtoElements.length} active QTO elements and ${kbobMaterials.length} KBOB materials.`
+        );
+
+        // 3. Perform LCA Calculation using the new service
+        const ebfNumeric = ebfValue ? parseFloat(ebfValue) : null;
+        const calculationResult = LcaCalculationService.calculateLcaResults(
+          qtoElements,
+          materialMappings || {}, // Ensure it's an object
+          kbobMaterials,
+          ebfNumeric
+        );
+
+        console.log(
+          `LCA Calculation completed. Total GWP: ${calculationResult.totalImpact.gwp.toFixed(
+            2
+          )}`
+        );
+
+        // 4. Save Summary to DB
         const lcaResultsCollection = lcaDb.collection(
           config.mongodb.collections.lcaResults
         );
-        const ebfNumeric = ebfValue ? parseFloat(ebfValue) : null;
         const finalEbf =
           ebfNumeric !== null && !isNaN(ebfNumeric) && ebfNumeric > 0
             ? ebfNumeric
-            : null;
+            : null; // Keep EBF in summary
 
-        // Fetch necessary data concurrently
-        const [qtoElements, materialLibrary] = await Promise.all([
-          qtoDb
-            .collection("elements")
-            .find<QtoElement>({
-              project_id: new ObjectId(projectId),
-              status: "active",
-            })
-            .toArray(),
-          lcaDb.collection("materialLibrary").find({}).toArray(),
-        ]);
-
-        console.log(
-          `Found ${qtoElements.length} active QTO elements for emission calculation.`
-        );
-
-        const kbobMap = new Map(materialLibrary.map((m) => [m.id, m]));
-
-        // Prepare data for Kafka (material instances)
-        const allMaterialInstances: any[] = [];
-        let totalGwp = 0,
-          totalUbp = 0,
-          totalPenr = 0;
-
-        // Get material densities from the saved LCA results (if they exist)
-        // This part assumes densities might be saved alongside mappings or similar
-        // If densities are passed from the frontend, use those instead.
-        // For now, we'll rely on KBOB default density. Adjust if needed.
-        // const savedLcaData = await lcaResultsCollection.findOne({ projectId });
-        // const materialDensities = savedLcaData?.materialDensities || {}; // Example
-
-        for (const qtoElement of qtoElements) {
-          const materialsInElement = qtoElement.materials || [];
-          let elementSequence = 0;
-
-          if (
-            Array.isArray(materialsInElement) &&
-            materialsInElement.length > 0
-          ) {
-            for (const material of materialsInElement) {
-              if (!material || typeof material.name !== "string") {
-                console.warn(
-                  `[Elem: ${
-                    qtoElement._id
-                  }] Skipping invalid material entry: ${JSON.stringify(
-                    material
-                  )}`
-                );
-                continue;
-              }
-
-              const normalizedQtoMatName = normalizeMaterialName(material.name);
-              let mappedKbobId: string | null = null;
-              let modelMatIdKey: string | null = null; // Store the mapping key
-
-              // Find KBOB mapping for this QTO material name
-              for (const [currentModelMatId, kbobId] of Object.entries(
-                materialMappings || {}
-              )) {
-                const normalizedModelMatId =
-                  normalizeMaterialName(currentModelMatId);
-                if (normalizedModelMatId === normalizedQtoMatName) {
-                  mappedKbobId = kbobId as string;
-                  modelMatIdKey = currentModelMatId; // Found the mapping key
-                  break;
-                }
-              }
-
-              if (mappedKbobId) {
-                const kbobMat = kbobMap.get(mappedKbobId);
-                if (kbobMat) {
-                  const volume = parseFloat(material.volume?.toString() || "0");
-                  // TODO: Incorporate custom density if available
-                  const density = kbobMat.density || 0;
-
-                  if (
-                    !isNaN(volume) &&
-                    volume > 0 &&
-                    !isNaN(density) &&
-                    density > 0
-                  ) {
-                    const mass = volume * density;
-                    const instanceImpact = {
-                      gwp: mass * (kbobMat.gwp || 0),
-                      ubp: mass * (kbobMat.ubp || 0),
-                      penr: mass * (kbobMat.penr || 0),
-                    };
-
-                    // Get the KBOB name
-                    const kbobName = kbobMat.nameDE || "Unknown KBOB Name";
-
-                    // Add instance to list for Kafka
-                    allMaterialInstances.push({
-                      element_global_id:
-                        qtoElement.global_id ||
-                        qtoElement.ifc_id ||
-                        qtoElement._id.toString(),
-                      material_name: material.name,
-                      kbob_id: mappedKbobId,
-                      kbob_name: kbobName,
-                      volume: volume,
-                      impact: instanceImpact,
-                      sequence: elementSequence++,
-                    });
-
-                    // Accumulate totals
-                    totalGwp += instanceImpact.gwp;
-                    totalUbp += instanceImpact.ubp;
-                    totalPenr += instanceImpact.penr;
-                  } else {
-                    console.log(
-                      `[Elem: ${qtoElement._id}, Mat: ${material.name}] Skipping calculation: Invalid volume (${volume}) or density (${density}).`
-                    );
-                  }
-                } else {
-                  console.log(
-                    `[Elem: ${qtoElement._id}, Mat: ${material.name}] KBOB data not found in kbobMap for mapped ID: ${mappedKbobId}`
-                  );
-                  // Add instance with UNKNOWN KBOB and name
-                  allMaterialInstances.push({
-                    element_global_id:
-                      qtoElement.global_id ||
-                      qtoElement.ifc_id ||
-                      qtoElement._id.toString(),
-                    material_name: material.name,
-                    kbob_id: "UNKNOWN_KBOB",
-                    kbob_name: "UNKNOWN_KBOB_NAME", // Add unknown name
-                    volume: parseFloat(material.volume?.toString() || "0"),
-                    impact: { gwp: 0, ubp: 0, penr: 0 },
-                    sequence: elementSequence++,
-                  });
-                }
-              } else {
-                console.log(
-                  `[Elem: ${qtoElement._id}, Mat: ${material.name}] No KBOB mapping found.`
-                );
-                // Optionally create an instance with UNKNOWN KBOB and 0 impact if needed downstream
-                allMaterialInstances.push({
-                  element_global_id:
-                    qtoElement.global_id ||
-                    qtoElement.ifc_id ||
-                    qtoElement._id.toString(),
-                  material_name: material.name,
-                  kbob_id: "UNKNOWN_KBOB",
-                  kbob_name: "UNKNOWN_KBOB_NAME", // Add unknown name
-                  volume: parseFloat(material.volume?.toString() || "0"),
-                  impact: { gwp: 0, ubp: 0, penr: 0 },
-                  sequence: elementSequence++,
-                });
-              }
-            }
-          }
-        } // End of qtoElements loop
-
-        console.log(
-          `Processed ${allMaterialInstances.length} material instances for Kafka.`
-        );
-
-        // Save the aggregated LCA results summary (includes total impact calculated now)
         await lcaResultsCollection.updateOne(
           { projectId },
           {
             $set: {
               projectId,
-              ifcData: {
-                // Store the calculated totals here
-                materials: ifcData?.materials || [], // Keep the input materials list for reference?
-                totalImpact: {
-                  gwp: totalGwp,
-                  ubp: totalUbp,
-                  penr: totalPenr,
-                },
-              },
-              materialMappings: materialMappings || {},
-              ebf: finalEbf,
+              // Store calculated totals and other summary info
+              totalImpact: calculationResult.totalImpact,
+              numberOfInstancesProcessed:
+                calculationResult.numberOfInstancesProcessed,
+              numberOfInstancesWithErrors:
+                calculationResult.numberOfInstancesWithErrors,
+              materialMappings: materialMappings || {}, // Save the mappings used
+              ebf: finalEbf, // Save the EBF used
               lastUpdated: new Date(),
+              // Avoid storing the full 'ifcData' or large instance lists here unless necessary
             },
           },
           { upsert: true }
         );
         console.log(
-          `Saved/Updated LCA results summary for project ${projectId} with calculated totals.`
+          `Saved/Updated LCA results summary for project ${projectId}.`
         );
 
-        // Prepare totals for Kafka relative calculation
-        const totals = { totalGwp, totalUbp, totalPenr };
-
-        // Send detailed material instances to Kafka
-        if (allMaterialInstances.length > 0 && kafkaMetadata) {
+        // 5. Send detailed material instances to Kafka
+        if (calculationResult.materialInstances.length > 0 && kafkaMetadata) {
           console.log(
-            `Sending ${allMaterialInstances.length} material instances to Kafka...`
+            `Sending ${calculationResult.materialInstances.length} processed material instances to Kafka...`
           );
+          // <<< Pass pre-calculated results directly to KafkaService >>>
           await kafkaService.sendLcaBatchToKafka(
-            allMaterialInstances,
-            kafkaMetadata,
-            totals
+            calculationResult.materialInstances, // Array of MaterialInstanceResult
+            kafkaMetadata
+            // No need to pass totals or ebf anymore
           );
         } else if (!kafkaMetadata) {
-          console.error("Cannot send to Kafka: Missing Kafka metadata.");
+          console.error(
+            "Cannot send to Kafka: Missing Kafka metadata was already checked, but re-checking."
+          );
         } else {
           console.log(
-            "No material instances with calculable impact found to send to Kafka."
+            "No processed material instances with impact found to send to Kafka."
           );
         }
 
-        // Send confirmation back to client
+        // 6. Send confirmation back to client
         ws.send(
           JSON.stringify({
             type: "materials_saved",
@@ -910,7 +777,10 @@ wss.on("connection", (ws) => {
             messageId: data.messageId,
           })
         );
-      }
+        console.log(
+          `Sent materials_saved confirmation for project ${projectId}.`
+        );
+      } // End save_project_materials
 
       // SEND_LCA_DATA handler
       if (data.type === "send_lca_data") {
@@ -1019,8 +889,8 @@ wss.on("connection", (ws) => {
         }
         const totals = { totalGwp, totalUbp, totalPenr };
 
-        // Corrected: Directly call kafkaService.sendLcaBatchToKafka with 3 arguments
-        const result = await kafkaService.sendLcaBatchToKafka(
+        // Use the legacy method for backward compatibility
+        const result = await kafkaService.sendLcaBatchToKafkaLegacy(
           lcaElementsForKafka,
           kafkaMetadata,
           totals
@@ -1041,12 +911,30 @@ wss.on("connection", (ws) => {
       }
     } catch (error) {
       console.error("Error processing message:", error);
-      ws.send(
-        JSON.stringify({ type: "error", message: "Failed to process request" })
-      );
+      // Avoid crashing the server on single message failure
+      try {
+        const data = JSON.parse(message.toString());
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: `Failed to process request: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            messageId: data.messageId || null,
+          })
+        );
+      } catch (parseError) {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: "Failed to process invalid message format",
+          })
+        );
+      }
     } finally {
       if (dbClient) {
         await dbClient.close();
+        // console.log("DB connection closed."); // Optional: Verify closure
       }
     }
   });
