@@ -20,6 +20,28 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
   initialLoading,
   selectedProject,
 }) => {
+  // Helper function for robust date parsing, similar to plugin-cost
+  const getValidatedDateObject = (timestamp: string): Date | null => {
+    if (!timestamp) return null;
+
+    let date = new Date(timestamp);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+
+    const adjustedTimestamp =
+      timestamp.endsWith("Z") || timestamp.includes("+")
+        ? timestamp
+        : timestamp + "Z";
+
+    const adjustedDate = new Date(adjustedTimestamp);
+    if (!isNaN(adjustedDate.getTime())) {
+      return adjustedDate;
+    }
+
+    return null; // Indicates parsing failed
+  };
+
   if (loading) {
     return (
       <Box
@@ -59,32 +81,47 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
   }
 
   const formatTime = (timestamp: string): string => {
-    if (!timestamp) return "N/A";
+    if (!timestamp) return "N/A"; // Handle empty input string explicitly
+    const date = getValidatedDateObject(timestamp);
+
+    if (!date) {
+      return "Invalid Time"; // Parsing failed for a non-empty string
+    }
+
     try {
-      const utcTimestamp = timestamp.endsWith("Z")
-        ? timestamp
-        : timestamp + "Z";
-      return new Date(utcTimestamp).toLocaleTimeString("de-DE", {
+      return date.toLocaleTimeString("de-DE", {
         timeZone: "Europe/Berlin",
         hour: "2-digit",
         minute: "2-digit",
       });
     } catch (e) {
-      console.error("Error formatting time:", e);
-      return "Invalid Time";
+      console.error("Error formatting time in formatTime (LCA):", e);
+      return "Invalid Time"; // Fallback error string
+    }
+  };
+
+  const createFormattedFullTimestampLCA = (timestamp: string): string => {
+    if (!timestamp) return "N/A";
+    const date = getValidatedDateObject(timestamp);
+
+    if (!date) {
+      return "Invalid Date"; // Consistent with plugin-cost for failed parse
+    }
+
+    try {
+      return date.toLocaleString("de-DE", {
+        timeZone: "Europe/Berlin",
+        dateStyle: "short",
+        timeStyle: "medium",
+      });
+    } catch (e) {
+      console.error("Error formatting full timestamp (LCA):", e);
+      return "Invalid Date"; // Fallback error string
     }
   };
 
   const formattedTimestamp = metadata.upload_timestamp
-    ? new Date(
-        metadata.upload_timestamp.endsWith("Z")
-          ? metadata.upload_timestamp
-          : metadata.upload_timestamp + "Z"
-      ).toLocaleString("de-DE", {
-        timeZone: "Europe/Berlin", // Adjust timezone as needed
-        dateStyle: "short",
-        timeStyle: "medium",
-      })
+    ? createFormattedFullTimestampLCA(metadata.upload_timestamp)
     : "N/A";
 
   const timeString = formatTime(metadata.upload_timestamp);
@@ -117,7 +154,9 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
           }}
         >
           {metadata.filename} ({metadata.element_count ?? "-"} Elemente)
-          {timeString !== "N/A" ? ` - Stand: ${timeString}` : ""}
+          {timeString !== "N/A" && timeString !== "Invalid Time"
+            ? ` - Stand: ${timeString}`
+            : ""}
         </Typography>
       </Tooltip>
     </Box>
