@@ -20,28 +20,6 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
   initialLoading,
   selectedProject,
 }) => {
-  // Helper function for robust date parsing, similar to plugin-cost
-  const getValidatedDateObject = (timestamp: string): Date | null => {
-    if (!timestamp) return null;
-
-    let date = new Date(timestamp);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
-
-    const adjustedTimestamp =
-      timestamp.endsWith("Z") || timestamp.includes("+")
-        ? timestamp
-        : timestamp + "Z";
-
-    const adjustedDate = new Date(adjustedTimestamp);
-    if (!isNaN(adjustedDate.getTime())) {
-      return adjustedDate;
-    }
-
-    return null; // Indicates parsing failed
-  };
-
   if (loading) {
     return (
       <Box
@@ -81,42 +59,106 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
   }
 
   const formatTime = (timestamp: string): string => {
-    if (!timestamp) return "N/A"; // Handle empty input string explicitly
-    const date = getValidatedDateObject(timestamp);
-
-    if (!date) {
-      return "Invalid Time"; // Parsing failed for a non-empty string
-    }
+    if (!timestamp) return "N/A";
 
     try {
-      return date.toLocaleTimeString("de-DE", {
+      let dateToFormat: Date;
+      const initialDate = new Date(timestamp);
+
+      if (!isNaN(initialDate.getTime())) {
+        const isAmbiguousLocal =
+          !timestamp.endsWith("Z") &&
+          !timestamp.includes("+") &&
+          !(
+            timestamp.includes("T") &&
+            (timestamp.split("T")[1].includes("-") ||
+              timestamp.split("T")[1].includes("+"))
+          );
+
+        if (isAmbiguousLocal) {
+          const utcDate = new Date(timestamp + "Z");
+          if (!isNaN(utcDate.getTime())) {
+            dateToFormat = utcDate;
+          } else {
+            console.warn(
+              `LCA formatTime: Ambiguous timestamp '${timestamp}' could not be reliably parsed as UTC for Berlin time conversion.`
+            );
+            return "Invalid Time";
+          }
+        } else {
+          dateToFormat = initialDate;
+        }
+      } else {
+        const utcDate = new Date(timestamp + "Z");
+        if (!isNaN(utcDate.getTime())) {
+          dateToFormat = utcDate;
+        } else {
+          console.warn(
+            `LCA formatTime: Failed to parse timestamp: '${timestamp}' even with 'Z'.`
+          );
+          return "Invalid Time";
+        }
+      }
+
+      return dateToFormat.toLocaleTimeString("de-DE", {
         timeZone: "Europe/Berlin",
         hour: "2-digit",
         minute: "2-digit",
       });
     } catch (e) {
-      console.error("Error formatting time in formatTime (LCA):", e);
-      return "Invalid Time"; // Fallback error string
+      console.error(`LCA formatTime: Error for timestamp '${timestamp}':`, e);
+      return "Invalid Time";
     }
   };
 
   const createFormattedFullTimestampLCA = (timestamp: string): string => {
     if (!timestamp) return "N/A";
-    const date = getValidatedDateObject(timestamp);
-
-    if (!date) {
-      return "Invalid Date"; // Consistent with plugin-cost for failed parse
-    }
-
     try {
-      return date.toLocaleString("de-DE", {
+      let dateToFormat: Date;
+      const initialDate = new Date(timestamp);
+
+      if (!isNaN(initialDate.getTime())) {
+        const isAmbiguousLocal =
+          !timestamp.endsWith("Z") &&
+          !timestamp.includes("+") &&
+          !(
+            timestamp.includes("T") &&
+            (timestamp.split("T")[1].includes("-") ||
+              timestamp.split("T")[1].includes("+"))
+          );
+        if (isAmbiguousLocal) {
+          const utcDate = new Date(timestamp + "Z");
+          if (!isNaN(utcDate.getTime())) {
+            dateToFormat = utcDate;
+          } else {
+            console.warn(
+              `LCA fullTs: Ambiguous timestamp '${timestamp}' could not be reliably parsed as UTC for Berlin time conversion.`
+            );
+            return "Invalid Date";
+          }
+        } else {
+          dateToFormat = initialDate;
+        }
+      } else {
+        const utcDate = new Date(timestamp + "Z");
+        if (!isNaN(utcDate.getTime())) {
+          dateToFormat = utcDate;
+        } else {
+          console.warn(
+            `LCA fullTs: Failed to parse timestamp: '${timestamp}' even with 'Z'.`
+          );
+          return "Invalid Date";
+        }
+      }
+
+      return dateToFormat.toLocaleString("de-DE", {
         timeZone: "Europe/Berlin",
         dateStyle: "short",
         timeStyle: "medium",
       });
     } catch (e) {
-      console.error("Error formatting full timestamp (LCA):", e);
-      return "Invalid Date"; // Fallback error string
+      console.error(`LCA fullTs: Error for timestamp '${timestamp}':`, e);
+      return "Invalid Date";
     }
   };
 
@@ -154,7 +196,9 @@ const ProjectMetadataDisplay: React.FC<ProjectMetadataDisplayProps> = ({
           }}
         >
           {metadata.filename} ({metadata.element_count ?? "-"} Elemente)
-          {timeString !== "N/A" && timeString !== "Invalid Time"
+          {timeString !== "N/A" &&
+          timeString !== "Invalid Time" &&
+          timeString !== "Invalid Date"
             ? ` - Stand: ${timeString}`
             : ""}
         </Typography>
