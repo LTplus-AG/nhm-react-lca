@@ -86,10 +86,13 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     }).format(num);
   };
 
-  const getDisplayValue = (value: number | undefined): number | undefined => {
+  const getDisplayValue = (
+    value: number | undefined,
+    amortizationYears: number
+  ): number | undefined => {
     if (value === undefined) return undefined;
     if (displayMode === "relative" && ebfNumeric !== null && ebfNumeric > 0) {
-      return value / (BUILDING_LIFETIME_YEARS * ebfNumeric);
+      return value / (amortizationYears * ebfNumeric);
     }
     return value;
   };
@@ -104,8 +107,11 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     return 0;
   };
 
-  const formatDisplayValue = (value: number | undefined): string => {
-    const displayValue = getDisplayValue(value);
+  const formatDisplayValue = (
+    value: number | undefined,
+    amortizationYears: number
+  ): string => {
+    const displayValue = getDisplayValue(value, amortizationYears);
     if (displayValue === undefined) return "N/A";
     const decimals = getDecimalPrecision(displayValue);
     return formatNumber(displayValue, decimals);
@@ -447,13 +453,16 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
                         {formatNumber(material.volume, 2)}
                       </TableCell>
                       <TableCell align="right">
-                        {formatDisplayValue(impact?.gwp)}
+                        {formatDisplayValue(impact?.gwp, BUILDING_LIFETIME_YEARS)}
                       </TableCell>
                       <TableCell align="right">
-                        {formatDisplayValue(impact?.ubp)}
+                        {formatDisplayValue(impact?.ubp, BUILDING_LIFETIME_YEARS)}
                       </TableCell>
                       <TableCell align="right">
-                        {formatDisplayValue(impact?.penr)}
+                        {formatDisplayValue(
+                          impact?.penr,
+                          BUILDING_LIFETIME_YEARS
+                        )}
                       </TableCell>
                     </TableRow>
                   );

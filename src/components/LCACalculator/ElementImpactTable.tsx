@@ -51,11 +51,12 @@ const formatNumber = (
 const getDisplayValue = (
   value: number | undefined,
   displayMode: DisplayMode,
-  ebfNumeric: number | null
+  ebfNumeric: number | null,
+  amortizationYears: number
 ): number | undefined => {
   if (value === undefined) return undefined;
   if (displayMode === "relative" && ebfNumeric !== null && ebfNumeric > 0) {
-    return value / (BUILDING_LIFETIME_YEARS * ebfNumeric);
+    return value / (amortizationYears * ebfNumeric);
   }
   return value;
 };
@@ -76,9 +77,15 @@ const getDecimalPrecision = (
 const formatDisplayValue = (
   value: number | undefined,
   displayMode: DisplayMode,
-  ebfNumeric: number | null
+  ebfNumeric: number | null,
+  amortizationYears: number
 ): string => {
-  const displayValue = getDisplayValue(value, displayMode, ebfNumeric);
+  const displayValue = getDisplayValue(
+    value,
+    displayMode,
+    ebfNumeric,
+    amortizationYears
+  );
   if (displayValue === undefined) return "N/A";
   const decimals = getDecimalPrecision(displayValue, displayMode);
   return formatNumber(displayValue, decimals);
@@ -236,11 +243,19 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
             break;
           case "impact":
             aValue =
-              getDisplayValue(a.impact?.[impactKey], displayMode, ebfNumeric) ??
-              -Infinity;
+              getDisplayValue(
+                a.impact?.[impactKey],
+                displayMode,
+                ebfNumeric,
+                a.amortization_years ?? BUILDING_LIFETIME_YEARS
+              ) ?? -Infinity;
             bValue =
-              getDisplayValue(b.impact?.[impactKey], displayMode, ebfNumeric) ??
-              -Infinity;
+              getDisplayValue(
+                b.impact?.[impactKey],
+                displayMode,
+                ebfNumeric,
+                b.amortization_years ?? BUILDING_LIFETIME_YEARS
+              ) ?? -Infinity;
             break;
           default:
             return 0;
@@ -328,13 +343,15 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
                 getDisplayValue(
                   a.totalImpact?.[impactKeyGroup],
                   displayMode,
-                  ebfNumeric
+                  ebfNumeric,
+                  BUILDING_LIFETIME_YEARS
                 ) ?? -Infinity;
               bValue =
                 getDisplayValue(
                   b.totalImpact?.[impactKeyGroup],
                   displayMode,
-                  ebfNumeric
+                  ebfNumeric,
+                  BUILDING_LIFETIME_YEARS
                 ) ?? -Infinity;
               break;
             case "ebkp":
@@ -714,7 +731,8 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
                       {formatDisplayValue(
                         groupImpactValue,
                         displayMode,
-                        ebfNumeric
+                        ebfNumeric,
+                        BUILDING_LIFETIME_YEARS
                       )}
                     </TableCell>
                   </TableRow>
@@ -799,7 +817,12 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
                       </Tooltip>
                     </TableCell>
                     <TableCell align="right">
-                      {formatDisplayValue(impactValue, displayMode, ebfNumeric)}
+                      {formatDisplayValue(
+                        impactValue,
+                        displayMode,
+                        ebfNumeric,
+                        element.amortization_years ?? BUILDING_LIFETIME_YEARS
+                      )}
                     </TableCell>
                   </TableRow>
                 );
