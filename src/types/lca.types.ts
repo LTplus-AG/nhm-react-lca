@@ -68,7 +68,7 @@ export interface UnmodelledMaterial {
 export interface KbobMaterial {
   id: string;
   nameDE: string;
-  density: number;
+  density?: number;
   densityRange?: {
     min: number;
     max: number;

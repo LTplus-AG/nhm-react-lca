@@ -5306,4 +5306,15 @@
       "subType": "04"
     }
   }
-}]
+},
+{
+  "_id": { "$oid": "014973935843e4fa4cb545d4" },
+  "KBOB_ID": "B06.01",
+  "Name": "Aushub",
+  "GWP": 4.0,
+  "UBP": 10,
+  "PENRE": 1.5,
+  "unit": "m³",
+  "uuid": { "$binary": { "base64": "oEd40LPoZbnXMGKlYcgz7Q==", "subType": "04" } }
+}
+]

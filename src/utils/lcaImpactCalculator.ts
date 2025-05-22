@@ -20,6 +20,26 @@ export class LCAImpactCalculator {
       return { gwp: 0, ubp: 0, penr: 0 };
     }
 
+    // --- Safely determine and validate volume ---
+    const volume = typeof material.volume === "number" ? material.volume : 0;
+    if (volume <= 0) {
+      // No volume means no impact
+      return { gwp: 0, ubp: 0, penr: 0 };
+    }
+
+    // If KBOB data is volume based, directly multiply with factors
+    if (kbobMaterial.unit === "m³") {
+      const gwpFactor = typeof kbobMaterial.gwp === "number" ? kbobMaterial.gwp : 0;
+      const ubpFactor = typeof kbobMaterial.ubp === "number" ? kbobMaterial.ubp : 0;
+      const penrFactor = typeof kbobMaterial.penr === "number" ? kbobMaterial.penr : 0;
+
+      return {
+        gwp: volume * gwpFactor,
+        ubp: volume * ubpFactor,
+        penr: volume * penrFactor,
+      };
+    }
+
     // --- Safely determine and validate density ---
     let density = materialDensities?.[material.id];
     // If custom density is invalid or missing, try KBOB density
@@ -28,26 +48,14 @@ export class LCAImpactCalculator {
     }
     // Final validation of density
     if (typeof density !== "number" || density <= 0) {
-      // Optionally log a warning
-      // console.warn(`Invalid or zero density (${density}) for material ${material.id} / KBOB ${kbobMaterial.id}. Returning zero impact.`);
-      return { gwp: 0, ubp: 0, penr: 0 };
-    }
-
-    // --- Safely determine and validate volume ---
-    const volume = typeof material.volume === "number" ? material.volume : 0;
-    if (volume <= 0) {
-      // No volume means no impact
       return { gwp: 0, ubp: 0, penr: 0 };
     }
 
     // --- Safely calculate and validate mass ---
     const mass = volume * density;
     if (isNaN(mass) || mass < 0) {
-      // Optionally log a warning
-      // console.warn(`Invalid mass (${mass}) calculated for material ${material.id} / KBOB ${kbobMaterial.id}. Returning zero impact.`);
       return { gwp: 0, ubp: 0, penr: 0 };
     }
-    // No need to check if mass is zero, as impacts would be zero anyway
 
     // --- Safely get impact factors from KBOB data, defaulting to 0 ---
     const gwpFactor =
@@ -86,21 +94,36 @@ export class LCAImpactCalculator {
         const kbobMaterial = kbobMaterialMap.get(matchedKbobId);
         if (kbobMaterial && typeof material.volume === "number") {
           const volume = material.volume;
-          const density =
-            materialDensities[material.id] || kbobMaterial.density || 0;
-          const mass = volume * density;
 
-          if (mass > 0) {
+          if (kbobMaterial.unit === "m³") {
             switch (outputFormat) {
               case OutputFormats.GWP:
-                totalValue += mass * (kbobMaterial.gwp || 0);
+                totalValue += volume * (kbobMaterial.gwp || 0);
                 break;
               case OutputFormats.UBP:
-                totalValue += mass * (kbobMaterial.ubp || 0);
+                totalValue += volume * (kbobMaterial.ubp || 0);
                 break;
               case OutputFormats.PENR:
-                totalValue += mass * (kbobMaterial.penr || 0);
+                totalValue += volume * (kbobMaterial.penr || 0);
                 break;
+            }
+          } else {
+            const density =
+              materialDensities[material.id] || kbobMaterial.density || 0;
+            const mass = volume * density;
+
+            if (mass > 0) {
+              switch (outputFormat) {
+                case OutputFormats.GWP:
+                  totalValue += mass * (kbobMaterial.gwp || 0);
+                  break;
+                case OutputFormats.UBP:
+                  totalValue += mass * (kbobMaterial.ubp || 0);
+                  break;
+                case OutputFormats.PENR:
+                  totalValue += mass * (kbobMaterial.penr || 0);
+                  break;
+              }
             }
           }
         }
