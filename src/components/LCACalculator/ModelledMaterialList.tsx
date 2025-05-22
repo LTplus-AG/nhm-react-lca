@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Grid,
   Paper,
@@ -12,7 +12,10 @@ import {
   Button,
   Tooltip,
   Chip,
+  ToggleButtonGroup,
+  ToggleButton,
 } from "@mui/material";
+import { useTheme, alpha } from "@mui/material/styles";
 import Select from "react-select";
 import {
   Material,
@@ -148,6 +151,10 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
   aggregatedMaterialImpacts,
 }) => {
   const [editingDensity, setEditingDensity] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<"none" | "matched" | "unmatched">(
+    "none"
+  );
+  const theme = useTheme();
 
   const getMatchedOption = (materialId: string) => {
     const matchId = matches[materialId];
@@ -222,6 +229,50 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
     return kbobMaterials.find((m) => m.id === matchId) || null;
   };
 
+  const isMaterialMatched = (materialId: string) => {
+    const matchId = matches[materialId];
+    return (
+      !!matchId &&
+      matchId.trim() !== "" &&
+      kbobMaterials.some((m) => m.id === matchId)
+    );
+  };
+
+  const sortedMaterials = useMemo(() => {
+    const arr = [...modelledMaterials];
+    if (sortOrder === "matched") {
+      arr.sort((a, b) => {
+        const aMatched = isMaterialMatched(a.id);
+        const bMatched = isMaterialMatched(b.id);
+        if (aMatched === bMatched) return 0;
+        return aMatched ? -1 : 1;
+      });
+    } else if (sortOrder === "unmatched") {
+      arr.sort((a, b) => {
+        const aMatched = isMaterialMatched(a.id);
+        const bMatched = isMaterialMatched(b.id);
+        if (aMatched === bMatched) return 0;
+        return aMatched ? 1 : -1;
+      });
+    }
+    return arr;
+  }, [modelledMaterials, sortOrder, matches, kbobMaterials]);
+
+  const getSelectStylesForMaterial = (materialId: string) => {
+    const base = selectStyles;
+    if (!isMaterialMatched(materialId)) {
+      return {
+        ...base,
+        control: (provided: any, state: any) => ({
+          ...(base.control ? base.control(provided, state) : provided),
+          borderColor: theme.palette.primary.main,
+          boxShadow: `0 0 0 2px ${alpha(theme.palette.primary.main, 0.3)}`,
+        }),
+      };
+    }
+    return base;
+  };
+
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -238,9 +289,22 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
         von {modelledMaterials.length} Materialien zugeordnet
       </Typography>
 
+      <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={sortOrder}
+          onChange={(_, val) => val && setSortOrder(val)}
+        >
+          <ToggleButton value="none">Standard</ToggleButton>
+          <ToggleButton value="unmatched">Offen zuerst</ToggleButton>
+          <ToggleButton value="matched">Erledigt zuerst</ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
+
       {/* Card Grid Layout */}
       <Grid container spacing={2}>
-        {modelledMaterials.map((material) => {
+        {sortedMaterials.map((material) => {
           const matchedKbobMaterial = getMatchedKbobMaterial(material.id);
           const emissionValue = getEmissionValue(material);
 
@@ -373,7 +437,7 @@ const ModelledMaterialList: React.FC<ModelledMaterialListProps> = ({
                       setMatches(newMatches);
                     }}
                     options={getOptionsForMaterial(material.id)}
-                    styles={selectStyles}
+                    styles={getSelectStylesForMaterial(material.id)}
                     placeholder="KBOB-Material auswählen..."
                     isClearable
                     menuPlacement="auto"
