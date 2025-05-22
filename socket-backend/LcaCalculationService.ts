@@ -5,22 +5,43 @@ import {
   QtoElement,
   KbobMaterial,
 } from "./types"; // Import types
+import { ebkpAmortizationPeriods } from "./data/amortizationData";
 
 // --- Amortization Configuration ---
-// Using fixed lifetime for now
-const CURRENT_LIFETIME_YEARS = 45;
-const DEFAULT_AMORTIZATION_YEARS_FALLBACK = 50; // Fallback if needed later
-
-/* <<< FUTURE: Dynamic Amortization Data (keep commented or load dynamically) >>>
-const ebkpAmortizationPeriods = new Map<string, number>([
-    // ['C 1.1', 80],
-    // ... add mappings ...
-]);
-*/
+const DEFAULT_AMORTIZATION_YEARS = 50; // Default fallback value
 
 // Helper to normalize material names
 function normalizeMaterialName(name: string): string {
   return name.replace(/\s*\(\d+\)\s*$/, "");
+}
+
+// Helper to determine amortization years for an element
+function getAmortizationYears(
+  ebkpCode: string | null,
+  description?: string
+): number {
+  if (!ebkpCode) {
+    return DEFAULT_AMORTIZATION_YEARS;
+  }
+
+  // Special handling for D05.02 with different descriptions
+  if (ebkpCode === "D05.02" && description) {
+    if (description.toLowerCase().includes("erdwaermesonden")) {
+      return (
+        ebkpAmortizationPeriods.get("D05.02_ERDWAERMESONDEN") ||
+        ebkpAmortizationPeriods.get("D05.02") ||
+        DEFAULT_AMORTIZATION_YEARS
+      );
+    } else if (description.toLowerCase().includes("solarkollektoren")) {
+      return (
+        ebkpAmortizationPeriods.get("D05.02_SOLARKOLLEKTOREN") ||
+        ebkpAmortizationPeriods.get("D05.02") ||
+        DEFAULT_AMORTIZATION_YEARS
+      );
+    }
+  }
+
+  return ebkpAmortizationPeriods.get(ebkpCode) || DEFAULT_AMORTIZATION_YEARS;
 }
 
 export class LcaCalculationService {
@@ -51,6 +72,7 @@ export class LcaCalculationService {
     for (const qtoElement of qtoElements) {
       const materialsInElement = qtoElement.materials || [];
       const elementEbkcCode = qtoElement.properties?.ebkp_code || null;
+      const elementDescription = qtoElement.properties?.description;
       const elementGlobalId =
         qtoElement.global_id ||
         qtoElement.ifc_id ||
@@ -93,7 +115,12 @@ export class LcaCalculationService {
           let gwpRel = 0,
             ubpRel = 0,
             penrRel = 0;
-          let amortizationYears = CURRENT_LIFETIME_YEARS; // Use fixed for now
+
+          // Get amortization years based on eBKP-H code and description
+          const amortizationYears = getAmortizationYears(
+            elementEbkcCode,
+            elementDescription
+          );
 
           if (
             kbobMat &&
@@ -106,15 +133,6 @@ export class LcaCalculationService {
             gwpAbs = mass * (kbobMat.gwp || 0);
             ubpAbs = mass * (kbobMat.ubp || 0);
             penrAbs = mass * (kbobMat.penr || 0);
-
-            // --- Amortization Period Determination ---
-            // <<< CURRENT: Using fixed value >>>
-            amortizationYears = CURRENT_LIFETIME_YEARS;
-            // <<< FUTURE: Dynamic Lookup >>>
-            /*
-            amortizationYears = (elementEbkcCode ? ebkpAmortizationPeriods.get(elementEbkcCode) : null)
-                                ?? DEFAULT_AMORTIZATION_YEARS_FALLBACK;
-            */
 
             // --- Relative Calculation ---
             const divisor =

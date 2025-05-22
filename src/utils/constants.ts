@@ -1,1 +1,1 @@
-export const BUILDING_LIFETIME_YEARS = 45;
+export const DEFAULT_AMORTIZATION_YEARS = 50;

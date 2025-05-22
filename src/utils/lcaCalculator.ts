@@ -124,11 +124,13 @@ export class LCACalculator {
     materialDensities: Record<string, number> = {},
     lifetime?: number,
     displayMode: DisplayMode = "total",
-    ebf: number | null = null
+    ebf: number | null = null,
+    ebkpCode?: string
   ): string {
     const { divisor, suffix, error } = LCADisplayHelper.getDivisorAndSuffix(
       displayMode,
-      ebf
+      ebf,
+      ebkpCode
     );
 
     // Handle error state for relative mode with invalid EBF
