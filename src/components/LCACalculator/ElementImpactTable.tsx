@@ -24,8 +24,7 @@ import {
   MaterialImpact,
   LcaElement,
 } from "../../types/lca.types";
-import { DisplayMode } from "../../utils/lcaDisplayHelper";
-import { BUILDING_LIFETIME_YEARS } from "../../utils/constants";
+import { DisplayMode, LCADisplayHelper } from "../../utils/lcaDisplayHelper";
 
 interface ElementImpactTableProps {
   elements: LcaElement[];
@@ -51,13 +50,17 @@ const formatNumber = (
 const getDisplayValue = (
   value: number | undefined,
   displayMode: DisplayMode,
-  ebfNumeric: number | null
+  ebfNumeric: number | null,
+  ebkpCode?: string
 ): number | undefined => {
   if (value === undefined) return undefined;
-  if (displayMode === "relative" && ebfNumeric !== null && ebfNumeric > 0) {
-    return value / (BUILDING_LIFETIME_YEARS * ebfNumeric);
-  }
-  return value;
+  const { divisor, error } = LCADisplayHelper.getDivisorAndSuffix(
+    displayMode,
+    ebfNumeric,
+    ebkpCode
+  );
+  if (error) return undefined;
+  return value / divisor;
 };
 
 const getDecimalPrecision = (
@@ -76,9 +79,10 @@ const getDecimalPrecision = (
 const formatDisplayValue = (
   value: number | undefined,
   displayMode: DisplayMode,
-  ebfNumeric: number | null
+  ebfNumeric: number | null,
+  ebkpCode?: string
 ): string => {
-  const displayValue = getDisplayValue(value, displayMode, ebfNumeric);
+  const displayValue = getDisplayValue(value, displayMode, ebfNumeric, ebkpCode);
   if (displayValue === undefined) return "N/A";
   const decimals = getDecimalPrecision(displayValue, displayMode);
   return formatNumber(displayValue, decimals);
@@ -236,11 +240,19 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
             break;
           case "impact":
             aValue =
-              getDisplayValue(a.impact?.[impactKey], displayMode, ebfNumeric) ??
-              -Infinity;
+              getDisplayValue(
+                a.impact?.[impactKey],
+                displayMode,
+                ebfNumeric,
+                a.properties?.ebkp_code
+              ) ?? -Infinity;
             bValue =
-              getDisplayValue(b.impact?.[impactKey], displayMode, ebfNumeric) ??
-              -Infinity;
+              getDisplayValue(
+                b.impact?.[impactKey],
+                displayMode,
+                ebfNumeric,
+                b.properties?.ebkp_code
+              ) ?? -Infinity;
             break;
           default:
             return 0;
@@ -799,7 +811,12 @@ const ElementImpactTable: React.FC<ElementImpactTableProps> = ({
                       </Tooltip>
                     </TableCell>
                     <TableCell align="right">
-                      {formatDisplayValue(impactValue, displayMode, ebfNumeric)}
+                      {formatDisplayValue(
+                        impactValue,
+                        displayMode,
+                        ebfNumeric,
+                        element.properties?.ebkp_code
+                      )}
                     </TableCell>
                   </TableRow>
                 );

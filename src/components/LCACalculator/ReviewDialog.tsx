@@ -27,9 +27,8 @@ import {
   LcaElement,
   MaterialImpact,
 } from "../../types/lca.types";
-import { BUILDING_LIFETIME_YEARS } from "../../utils/constants";
 import { LCACalculator } from "../../utils/lcaCalculator";
-import { DisplayMode } from "../../utils/lcaDisplayHelper";
+import { DisplayMode, LCADisplayHelper } from "../../utils/lcaDisplayHelper";
 import ElementImpactTable from "./ElementImpactTable";
 
 interface ReviewDialogProps {
@@ -86,12 +85,18 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     }).format(num);
   };
 
-  const getDisplayValue = (value: number | undefined): number | undefined => {
+  const getDisplayValue = (
+    value: number | undefined,
+    ebkpCode?: string
+  ): number | undefined => {
     if (value === undefined) return undefined;
-    if (displayMode === "relative" && ebfNumeric !== null && ebfNumeric > 0) {
-      return value / (BUILDING_LIFETIME_YEARS * ebfNumeric);
-    }
-    return value;
+    const { divisor, error } = LCADisplayHelper.getDivisorAndSuffix(
+      displayMode,
+      ebfNumeric,
+      ebkpCode
+    );
+    if (error) return undefined;
+    return value / divisor;
   };
 
   const getDecimalPrecision = (value: number | undefined): number => {
@@ -104,8 +109,11 @@ const ReviewDialog: React.FC<ReviewDialogProps> = ({
     return 0;
   };
 
-  const formatDisplayValue = (value: number | undefined): string => {
-    const displayValue = getDisplayValue(value);
+  const formatDisplayValue = (
+    value: number | undefined,
+    ebkpCode?: string
+  ): string => {
+    const displayValue = getDisplayValue(value, ebkpCode);
     if (displayValue === undefined) return "N/A";
     const decimals = getDecimalPrecision(displayValue);
     return formatNumber(displayValue, decimals);
