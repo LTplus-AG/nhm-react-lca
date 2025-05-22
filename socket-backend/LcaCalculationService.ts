@@ -5,18 +5,13 @@ import {
   QtoElement,
   KbobMaterial,
 } from "./types"; // Import types
+import { ebkpAmortizationPeriods } from "./ebkpAmortizationPeriods";
 
 // --- Amortization Configuration ---
 // Using fixed lifetime for now
-const CURRENT_LIFETIME_YEARS = 45;
-const DEFAULT_AMORTIZATION_YEARS_FALLBACK = 50; // Fallback if needed later
+const DEFAULT_AMORTIZATION_YEARS_FALLBACK = 50; // Default if mapping missing
 
-/* <<< FUTURE: Dynamic Amortization Data (keep commented or load dynamically) >>>
-const ebkpAmortizationPeriods = new Map<string, number>([
-    // ['C 1.1', 80],
-    // ... add mappings ...
-]);
-*/
+
 
 // Helper to normalize material names
 function normalizeMaterialName(name: string): string {
@@ -50,7 +45,7 @@ export class LcaCalculationService {
 
     for (const qtoElement of qtoElements) {
       const materialsInElement = qtoElement.materials || [];
-      const elementEbkcCode = qtoElement.properties?.ebkp_code || null;
+      const elementEbkpCode = qtoElement.properties?.ebkp_code || null;
       const elementGlobalId =
         qtoElement.global_id ||
         qtoElement.ifc_id ||
@@ -93,7 +88,7 @@ export class LcaCalculationService {
           let gwpRel = 0,
             ubpRel = 0,
             penrRel = 0;
-          let amortizationYears = CURRENT_LIFETIME_YEARS; // Use fixed for now
+          let amortizationYears = DEFAULT_AMORTIZATION_YEARS_FALLBACK;
 
           if (
             kbobMat &&
@@ -108,13 +103,10 @@ export class LcaCalculationService {
             penrAbs = mass * (kbobMat.penr || 0);
 
             // --- Amortization Period Determination ---
-            // <<< CURRENT: Using fixed value >>>
-            amortizationYears = CURRENT_LIFETIME_YEARS;
-            // <<< FUTURE: Dynamic Lookup >>>
-            /*
-            amortizationYears = (elementEbkcCode ? ebkpAmortizationPeriods.get(elementEbkcCode) : null)
-                                ?? DEFAULT_AMORTIZATION_YEARS_FALLBACK;
-            */
+            amortizationYears =
+              (elementEbkpCode
+                ? ebkpAmortizationPeriods.get(elementEbkpCode)
+                : null) ?? DEFAULT_AMORTIZATION_YEARS_FALLBACK;
 
             // --- Relative Calculation ---
             const divisor =
@@ -164,7 +156,7 @@ export class LcaCalculationService {
             kbob_name:
               kbobMat?.nameDE ||
               (mappedKbobId ? "KBOB Data Missing" : "Not Mapped"),
-            ebkp_code: elementEbkcCode,
+            ebkp_code: elementEbkpCode,
             amortization_years: amortizationYears,
             gwp_absolute: gwpAbs,
             ubp_absolute: ubpAbs,
