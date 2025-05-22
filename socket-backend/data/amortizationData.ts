@@ -103,4 +103,4 @@ export const ebkpAmortizationPeriods: Map<string, number> = new Map([
   ["G04.04", 30],
 ]);
 
-export { DEFAULT_AMORTIZATION_YEARS } from "../utils/constants";
+
