@@ -5,18 +5,17 @@ import {
   QtoElement,
   KbobMaterial,
 } from "./types"; // Import types
+import { amortizationYearsByEbkp } from "./amortizationData";
 
 // --- Amortization Configuration ---
 // Using fixed lifetime for now
 const CURRENT_LIFETIME_YEARS = 45;
 const DEFAULT_AMORTIZATION_YEARS_FALLBACK = 50; // Fallback if needed later
 
-/* <<< FUTURE: Dynamic Amortization Data (keep commented or load dynamically) >>>
-const ebkpAmortizationPeriods = new Map<string, number>([
-    // ['C 1.1', 80],
-    // ... add mappings ...
-]);
-*/
+// Map EBKP codes to amortization periods
+const ebkpAmortizationPeriods = new Map<string, number>(
+  Object.entries(amortizationYearsByEbkp)
+);
 
 // Helper to normalize material names
 function normalizeMaterialName(name: string): string {
@@ -108,13 +107,10 @@ export class LcaCalculationService {
             penrAbs = mass * (kbobMat.penr || 0);
 
             // --- Amortization Period Determination ---
-            // <<< CURRENT: Using fixed value >>>
-            amortizationYears = CURRENT_LIFETIME_YEARS;
-            // <<< FUTURE: Dynamic Lookup >>>
-            /*
-            amortizationYears = (elementEbkcCode ? ebkpAmortizationPeriods.get(elementEbkcCode) : null)
-                                ?? DEFAULT_AMORTIZATION_YEARS_FALLBACK;
-            */
+            amortizationYears =
+              (elementEbkcCode
+                ? ebkpAmortizationPeriods.get(elementEbkcCode)
+                : null) ?? DEFAULT_AMORTIZATION_YEARS_FALLBACK;
 
             // --- Relative Calculation ---
             const divisor =
